@@ -26,17 +26,29 @@ print("To end the program, press 0 and the enter.")
 print("***********************************************************************************")
 
 # defining the necessary constants.
-b_first=int(251)
-big_num=int(10**14)
-big_num2=int(10**12)
+b_first=251
+big_num=10**14
+big_num2=10**12
 basic_field=[2,3,5,7]
-# The basis of the power of Fermat's theorem.
-a=int(2)
+
 # Function for entering an numbers
 def get_input():
     while True:
         try:
             print("Enter the number:")
+            input_string=sys.stdin.readline()
+            number_int=int(input_string)
+        except Exception:
+            print("Please insert only integer values")
+            continue
+        break
+    return number_int
+
+# Function for entering "a"
+def get_a():
+    while True:
+        try:
+            print("Enter the basis a:")
             input_string=sys.stdin.readline()
             number_int=int(input_string)
         except Exception:
@@ -62,9 +74,9 @@ while True:
  
     # filtering by classical algorithm to prime numbers n<big_num
     if number < big_num and stop == False:
-        divisor_1=int(1)
-        divisor_2=int(1)
-        k=int(1)
+        divisor_1=1
+        divisor_2=1
+        k=1
         range = round(math.sqrt(n)+1)       
         while divisor_1 <= range:           
             divisor_1=6*k+1
@@ -86,15 +98,15 @@ while True:
     # 1 step: filtering to magic formula 24
     if stop == False and n > big_num:
         # 1 step: filtering to magic formula 24
-        magic=int(n**2-1) % 24
+        magic=(n**2-1) % 24
         if magic > 0:
             print("Number is composite, magic formula nˆ2 Mod 24=0, see: https://robopol.sk/blog/program-na-prvočísla")
             stop=True
             break
         # filtering by classical algorithm to prime numbers divisor<big_num2.
-        divisor_1=int(1)
-        divisor_2=int(1)
-        k=int(1)
+        divisor_1=1
+        divisor_2=1
+        k=1
         range = round(math.sqrt(big_num2)+1)
         while divisor_1 <= range:
             divisor_1=6*k+1
@@ -113,6 +125,8 @@ while True:
         
         # Filtering by an improved algorithm of a small Fermat theorem, create: robopol.sk.
         if stop == False:
+            # The basis of the power of Fermat's theorem.
+            a=get_a()
             print("wait")
             # defining the necessary constants.
             cycle_end=cycle= int(a**b_first % n)
@@ -152,9 +166,12 @@ while True:
             # determination of conditions for prime numbers.
             remainder = int((cycle_end * a ** k) % n)
             print ("remainder is:", remainder)
-            # Robopol test, if remainder is n-1 for (n-1)/2 and remainder is 1 for n-1, number is prime.
-            print("Robopol test, if remainder is n-1 for (n-1)/2 and remainder is 1 for n-1, number is 100% prime.")
-            if remainder == 1 or remainder == n-1:
-                print("Number is prime or pseudoprime, pseudoprimes are very unlikely.")                           
-            if remainder > 1 and remainder < (n - 1):
+            # Robopol test, if remainder is n-1 for (n-1)/2 and remainder is 1 for n-1, number is probably prime.            
+            if remainder == 1:
+                print("Number is prime or pseudoprime, pseudoprimes are very unlikely.")
+                print(" It is also recommended to try the calculation for several bases a = 2,3,4,5…")
+            if remainder == n-1:
+                print("Number is strong probably prime.")
+                print(" It is also recommended to try the calculation for several bases a = 2,3,4,5…") 
+            if remainder != n-1 and remainder != 1:
                 print("Number is composite.")
