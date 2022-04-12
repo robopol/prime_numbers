@@ -10,13 +10,14 @@
 # 'type: console program' 
 # Copyright notice: This code is Open Source and should remain so.
 # *************************************************************************
+from logging import BASIC_FORMAT
 import sys
 import math
 
 print("***********************************************************************************")
 print("Prime number test:")
 print("")
-print("This program uses a classical algorithm (for numbers < 10ˆ18) and ")
+print("This program uses a classical algorithm (for numbers < 10ˆ14) and ")
 print("improved finding of prime numbers using a small Fermat theorem.")
 print("If it gets the statement: prime or pseudoprime, then it is a probability")
 print("result, with pseudoprimes having a low probability.")
@@ -28,9 +29,12 @@ print("*************************************************************************
 # defining the necessary constants.
 b_first=251
 big_num=10**14
-big_num2=10**12
+big_num2=10**14
 basic_field=[2,3,5,7]
-
+global basic_a
+basic_a=False
+global last_n
+last_n=0
 # Function for entering an numbers
 def get_input():
     while True:
@@ -61,7 +65,12 @@ def get_a():
 while True:
     n=number=get_input()
     stop=False
-    
+    if last_n==n:
+        basic_a=True
+    else:
+        basic_a=False
+    last_n=n
+
     # end of program    
     if number == 0:
         break
@@ -73,7 +82,7 @@ while True:
             break
  
     # filtering by classical algorithm to prime numbers n<big_num
-    if number < big_num and stop == False:
+    if number < big_num and stop == False and basic_a == False:
         divisor_1=1
         divisor_2=1
         k=1
@@ -92,41 +101,48 @@ while True:
                     print("Number is composite, the first divisor is:", divisor_2)
                     stop=True
                     break  
-        if stop==False: print("Number is prime")    
+        if stop==False: 
+            print("Number is prime")
+            break    
 
     # filtering by Robopol algorithm n>big_num, more information: https://robopol.sk/blog/
     # 1 step: filtering to magic formula 24
     if stop == False and n > big_num:
-        # 1 step: filtering to magic formula 24
-        magic=(n**2-1) % 24
-        if magic > 0:
-            print("Number is composite, magic formula nˆ2 Mod 24=0, see: https://robopol.sk/blog/program-na-prvočísla")
-            stop=True
-            break
+        if basic_a == False:
+            # 1 step: filtering to magic formula 24
+            magic=(n**2-1) % 24
+            if magic > 0:
+                print("Number is composite, magic formula nˆ2 Mod 24=0, see: https://robopol.sk/blog/program-na-prvočísla")
+                stop=True
+                break
         # filtering by classical algorithm to prime numbers divisor<big_num2.
-        divisor_1=1
-        divisor_2=1
-        k=1
-        range = round(math.sqrt(big_num2)+1)
-        while divisor_1 <= range:
-            divisor_1=6*k+1
-            divisor_2=6*k-1
-            k+=1
-            if divisor_1 % 5 != 0:
-                if n % divisor_1 == 0:
-                    print("Number is composite, the first divisor is:", divisor_1)
-                    stop=True
-                    break       
-            if divisor_1 % 5 != 0:
-                if n % divisor_2 == 0:
-                    print("Number is composite, the first divisor is:", divisor_2)
-                    stop=True
-                    break  
+        if basic_a == False:
+            divisor_1=1
+            divisor_2=1
+            k=1
+            range = round(math.sqrt(big_num2)+1)
+            while divisor_1 <= range:
+                divisor_1=6*k+1
+                divisor_2=6*k-1
+                k+=1
+                if divisor_1 % 5 != 0:
+                    if n % divisor_1 == 0:
+                        print("Number is composite, the first divisor is:", divisor_1)
+                        stop=True
+                        break       
+                if divisor_1 % 5 != 0:
+                    if n % divisor_2 == 0:
+                        print("Number is composite, the first divisor is:", divisor_2)
+                        stop=True
+                        break
+            basic_a=True  
         
         # Filtering by an improved algorithm of a small Fermat theorem, create: robopol.sk.
         if stop == False:
             # The basis of the power of Fermat's theorem.
             a=get_a()
+            if a == 0:
+                break
             print("wait")
             # defining the necessary constants.
             cycle_end=cycle= int(a**b_first % n)
