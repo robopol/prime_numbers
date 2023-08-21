@@ -41,7 +41,7 @@ b_first=100;big_num=10**20;basic_a=False;last_n=0;basic_field=[2,3,5,7,11,13];bi
 
 while True:
     if basic_a==False:
-        n = 2**9689-1    
+        n = get_input()    
     if n == 0:
         break
     # filtering with sympy library
