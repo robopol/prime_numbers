@@ -41,7 +41,8 @@ b_first=100;big_num=10**20;basic_a=False;last_n=0;basic_field=[2,3,5,7,11,13];bi
 
 while True:
     if basic_a==False:
-        n = get_input()    
+        n = get_input()
+        stop=False;basic_a=False    
     if n == 0:
         break
     # filtering with sympy library
@@ -52,7 +53,7 @@ while True:
             print("Number is composite")                   
 
     if n > big_num:                    
-        if basic_a == False:
+        if basic_a == False and stop == False:
             # filtering to basic conditions
             for divisor in basic_field:
                 if n % divisor == 0:
@@ -60,14 +61,14 @@ while True:
                     stop=True
                     break
         # filtering by classical algorithm to prime numbers divisor<big_num2.
-        if basic_a == False:
+        if basic_a == False and stop == False:
             divisor_1=1
             divisor_2=1
             k=1
             range = round(math.sqrt(big_num2)+1)
             while divisor_1 <= range:
-                divisor_1=6*k+1
-                divisor_2=6*k-1
+                divisor_1=6*k-1
+                divisor_2=6*k+1
                 k+=1                
                 if n % divisor_1 == 0:
                     print("Number is composite, the first divisor is:", divisor_1)
@@ -81,7 +82,8 @@ while True:
         if stop == False:
             a = get_a()
             if a == 0:
-                break
+                basic_a = False                
+                continue
             basic_a=True
             print("Please wait...")
             cycle_end = cycle = int(a ** b_first % n)
@@ -89,14 +91,14 @@ while True:
             euler = (n - 1) // 2
             k = euler
             field_num = [b_first]
-            field_res = [cycle]
-            
+            field_res = [cycle]            
             while complet < euler:
                 if 2 * complet >= euler:
                     break
                 cycle = cycle ** 2
                 if cycle > n:
-                    cycle = cycle % n                    
+                    cycle = cycle % n
+                    if cycle == 0: cycle=n                    
                 complet = 2 * complet
                 field_num.append(complet)
                 field_res.append(cycle)                
