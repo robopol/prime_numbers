@@ -42,11 +42,12 @@ Note: You can also input mathematical expressions.Example: 2**12-1, 50!-1
 To conclude the program, press 0 and then press Enter.
 """)
 big_num=10**20;basic_a=False;last_n=0;basic_field=[2,3,5,7,11,13];big_num2=10**12;stop=False; delta_old=0.9999
+
     
 while True:
     if basic_a==False:
         n = get_input()
-        stop=False;basic_a=False    
+        stop=False;basic_a=False;k=0    
     if n == 0:
         break
     # filtering with sympy library
@@ -83,19 +84,20 @@ while True:
                     stop=True
                     break          
             
-        if stop == False:
+        if stop == False:            
             a = get_a()
             if a == 0:
                 basic_a = False                
                 continue
             basic_a=True
             if n>10**100: print("Please wait...")
-            # searching better b_first            
-            for delta in range(50,151):
-                x=math.log(n/delta)/math.log(2)
-                delta_new=x-int(x)
-                if delta_new<delta_old:
-                    b_first=delta         
+            if k==0:            
+                # searching better b_first            
+                for delta in range(50,151):
+                    x=math.log(n/delta)/math.log(2)
+                    delta_new=x-int(x)
+                    if delta_new<delta_old:
+                        b_first=delta         
             
             cycle_end = cycle = int(a ** b_first % n)
             complet_end = complet = b_first
@@ -135,3 +137,4 @@ while True:
                 print(" It is also recommended to try the calculation for several bases a = 2,3,4,5…") 
             else:
                 print("Number is composite.")
+            k+=1
