@@ -7,9 +7,13 @@ def get_input():
         try:
             print("Enter the number:")
             input_string = sys.stdin.readline()
-            number_int = int(input_string)
+            number_expr = sympy.sympify(input_string)            
+            number_int = int(number_expr) if sympy.sympify(number_expr).is_number else None
         except Exception:
-            print("Please insert only integer values")
+            print("Please insert a valid integer or mathematical expression")
+            continue
+        if number_int is None:
+            print("Please insert only integer values or valid mathematical expressions")
             continue
         break
     return number_int
@@ -34,11 +38,11 @@ for finding prime numbers using the small Fermat theorem.
 When it yields the outcome: prime or pseudoprime, it reflects a probability result,
 with pseudoprimes having a low likelihood.
 Pseudoprimes are non-genuine primes. For enhanced results, consider changing the base 'a' to 3, 4, 5, 7, and so on.
-
+Note: You can also input mathematical expressions.Example: 2**12-1, 50!-1
 To conclude the program, press 0 and then press Enter.
 """)
-b_first=100;big_num=10**20;basic_a=False;last_n=0;basic_field=[2,3,5,7,11,13];big_num2=10**12;stop=False
-
+big_num=10**20;basic_a=False;last_n=0;basic_field=[2,3,5,7,11,13];big_num2=10**12;stop=False; delta_old=0.9999
+    
 while True:
     if basic_a==False:
         n = get_input()
@@ -65,8 +69,8 @@ while True:
             divisor_1=1
             divisor_2=1
             k=1
-            range = round(math.sqrt(big_num2)+1)
-            while divisor_1 <= range:
+            end = round(math.sqrt(big_num2)+1)
+            while divisor_1 <= end:
                 divisor_1=6*k-1
                 divisor_2=6*k+1
                 k+=1                
@@ -85,7 +89,14 @@ while True:
                 basic_a = False                
                 continue
             basic_a=True
-            print("Please wait...")
+            if n>10**100: print("Please wait...")
+            # searching better b_first            
+            for delta in range(50,151):
+                x=math.log(n/delta)/math.log(2)
+                delta_new=x-int(x)
+                if delta_new<delta_old:
+                    b_first=delta         
+            
             cycle_end = cycle = int(a ** b_first % n)
             complet_end = complet = b_first
             euler = (n - 1) // 2
@@ -97,8 +108,7 @@ while True:
                     break
                 cycle = cycle ** 2
                 if cycle > n:
-                    cycle = cycle % n
-                    if cycle == 0: cycle=n                    
+                    cycle = cycle % n                                        
                 complet = 2 * complet
                 field_num.append(complet)
                 field_res.append(cycle)                
