@@ -1,0 +1,147 @@
+import tkinter as tk
+from tkinter import messagebox
+import sympy
+import math
+
+def get_input():
+    input_string = text_number.get("1.0", tk.END).strip()
+    try:
+        number_expr = sympy.sympify(input_string)
+        number_int = int(number_expr) if sympy.sympify(number_expr).is_number else None
+        if number_int is None:
+            raise ValueError
+    except Exception:
+        messagebox.showerror("Input Error", "Please insert a valid integer or mathematical expression")
+        return None
+    return number_int
+
+def get_a():
+    input_string = entry_a.get()
+    try:
+        number_int = int(input_string)
+    except Exception:
+        messagebox.showerror("Input Error", "Please insert only integer values")
+        return None
+    return number_int
+
+def check_prime():
+    global basic_a, stop
+    basic_a = False
+    stop = False
+    n = get_input()
+    if n is None:
+        return
+    if n == 0:
+        root.quit()
+    result_text = ""
+
+    # filtering with sympy library
+    if n < big_num:
+        if sympy.isprime(n):
+            result_text = "Number is prime."
+        else:
+            result_text = "Number is composite."
+    elif n > big_num:
+        if basic_a == False and stop == False:
+            # filtering to basic conditions
+            for divisor in basic_field:
+                if n % divisor == 0:
+                    result_text = f"Number is composite, the first divisor is: {divisor}"
+                    stop = True
+                    break
+
+        if basic_a == False and stop == False:
+            divisor_1 = 1
+            divisor_2 = 1
+            k = 1
+            end = round(math.sqrt(big_num2) + 1)
+            while divisor_1 <= end:
+                divisor_1 = 6 * k - 1
+                divisor_2 = 6 * k + 1
+                k += 1
+                if n % divisor_1 == 0:
+                    result_text = f"Number is composite, the first divisor is: {divisor_1}"
+                    stop = True
+                    break
+                if n % divisor_2 == 0:
+                    result_text = f"Number is composite, the first divisor is: {divisor_2}"
+                    stop = True
+                    break
+
+        if stop == False:
+            a = get_a()
+            if a is None:
+                messagebox.showerror("Input Error", "Please insert a=2,3,4,5… or only integer values")
+                return
+
+            if n > 10**10000:
+                result_label.config(text="")
+                root.update_idletasks()  # Force the GUI to update
+                result_label.config(text="Please wait...\n")
+                root.update_idletasks()  # Force the GUI to update
+            euler = (n - 1) // 2
+            cycle = int(a ** b_first % n)
+            complet = b_first
+            while complet - 1 < euler:
+                cycle = cycle ** 2
+                if cycle > n:
+                    cycle = cycle % n
+                complet = 2 * complet
+
+            if cycle > n // 2:
+                cycle = cycle - (n - 1)
+            k = complet - euler
+            remainder = cycle // a ** k
+
+            if remainder == 1:
+                result_text += "Number is prime or pseudoprime, pseudoprimes are very unlikely. Remainder is 1\n"
+                result_text += "It is also recommended to try the calculation for several bases a = 2,3,4,5…"
+            elif remainder == -1:
+                result_text += "Number is strong probably prime. Remainder is n-1\n"
+                result_text += "It is also recommended to try the calculation for several bases a = 2,3,4,5…"
+            else:
+                result_text += "Number is composite."
+
+    result_label.config(text=result_text)
+
+# Constants
+big_num = 10**20
+basic_a = False
+basic_field = [2, 3, 5, 7, 11, 13]
+big_num2 = 10**12
+b_first = 128
+stop = False
+
+# GUI setup
+root = tk.Tk()
+root.title("Prime Number Test")
+
+# Dark theme
+root.configure(bg="#2E2E2E")
+
+instruction_text = """
+Prime Number Test:
+
+This program employs a classical algorithm (for numbers < 10^20) and an improved method
+for finding prime numbers using the small Fermat theorem.
+When it yields the outcome: prime or pseudoprime, it reflects a probability result,
+with pseudoprimes having a low likelihood.
+Pseudoprimes are non-genuine primes. For enhanced results, consider changing the base 'a' to 3, 4, 5, 7, and so on.
+Note: You can also input mathematical expressions. Example: 2**13-1, 15!-1
+"""
+tk.Label(root, text=instruction_text, wraplength=600, justify="left", bg="#2E2E2E", fg="white").pack(padx=10, pady=10)
+frame = tk.Frame(root, bg="#2E2E2E")
+frame.pack(pady=5)
+tk.Label(frame, text="Enter the number:", bg="#2E2E2E", fg="white").grid(row=0, column=0, padx=5, pady=5)
+text_number = tk.Text(frame, height=4, width=30, bg="#1C1C1C", fg="white", insertbackground="white")
+text_number.grid(row=0, column=1, padx=5, pady=5)
+tk.Label(frame, text="Enter the basis a:", bg="#2E2E2E", fg="white").grid(row=1, column=0, padx=5, pady=5)
+entry_a = tk.Entry(frame, width=10, bg="#1C1C1C", fg="white", insertbackground="white")
+entry_a.insert(0, "2")
+entry_a.grid(row=1, column=1, padx=5, pady=5)
+tk.Button(root, text="Check Prime", command=check_prime, bg="#424242", fg="white").pack(pady=10)
+result_label = tk.Label(root, text="", wraplength=600, justify="left", bg="#2E2E2E", fg="white")
+
+result_label.pack(padx=10, pady=10)
+
+root.mainloop()
