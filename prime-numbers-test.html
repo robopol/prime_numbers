@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Prime Number Test</title>
+  <style>
+    body {
+      background-color: #2E2E2E;
+      color: white;
+      font-family: Helvetica, sans-serif;
+      margin: 0;
+      padding: 0;
+    }
+    .container {
+      max-width: 700px;
+      margin: auto;
+      padding: 20px;
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 0.5em;
+    }
+    .spinner {
+      border: 8px solid #f3f3f3;
+      border-top: 8px solid #424242;
+      border-radius: 50%;
+      width: 60px;
+      height: 60px;
+      animation: spin 2s linear infinite;
+      margin: 20px auto;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+    .hidden {
+      display: none;
+    }
+    label {
+      display: block;
+      margin-top: 15px;
+    }
+    textarea, input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border: none;
+      border-radius: 4px;
+      box-sizing: border-box;
+      background-color: #1C1C1C;
+      color: white;
+    }
+    button, select {
+      background-color: #424242;
+      color: white;
+      padding: 10px 20px;
+      margin-top: 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+    }
+    button:hover, select:hover {
+      background-color: #333333;
+    }
+    #result {
+      margin-top: 20px;
+      white-space: pre-wrap;
+    }
+    .section {
+      margin-bottom: 20px;
+    }
+    #languageSelect {
+      float: right;
+      margin-top: -50px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <!-- Jazykový prepínač (SK/EN) -->
+    <select id="languageSelect">
+      <option value="en">English</option>
+      <option value="sk">Slovensky</option>
+    </select>
+
+    <h1 id="heading"></h1>
+
+    <div class="section" id="instructions">
+      <p id="instructions-text"></p>
+    </div>
+
+    <!-- Spinner a status pri načítavaní Pyodide -->
+    <div id="pyodide-spinner" class="spinner"></div>
+    <div id="pyodide-status" style="text-align: center;"></div>
+    
+    <!-- Hlavné UI po načítaní -->
+    <div id="app" class="hidden">
+      <div class="section">
+        <label id="label-number" for="numberInput"></label>
+        <textarea id="numberInput" rows="3"></textarea>
+      </div>
+      <div class="section">
+        <label id="label-base" for="baseInput"></label>
+        <input type="text" id="baseInput" />
+      </div>
+      <button id="checkPrime"></button>
+      <div id="result"></div>
+    </div>
+  </div>
+  
+  <!-- Pyodide -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
+  <script>
+    // Dvojjazyčné texty rozhrania
+    const translations = {
+      en: {
+        heading: "Prime Number Test",
+        instructions: `This program employs a classical algorithm (for numbers < 10^20) and an improved method
+for finding prime numbers using the small Fermat theorem.
+When it yields the outcome: prime or pseudoprime, it reflects a probability result,
+with pseudoprimes having a low likelihood.
+Pseudoprimes are non-genuine primes.
+For enhanced results, several bases (e.g., 2, 3, 5, 7, 11, 13) will be tested sequentially.
+You can also input mathematical expressions (e.g., 2**13-1, 15!-1).
+To conclude the program, enter 0.`,
+        loading: "Loading Python environment...",
+        labelNumber: "Enter the number:",
+        labelBase: "Enter the basis a:",
+        buttonCheck: "Check Prime"
+      },
+      sk: {
+        heading: "Test Prvočísel",
+        instructions: `Tento program používa klasický algoritmus (pre čísla < 10^20) a vylepšenú metódu
+na hľadanie prvočísel pomocou malého Fermatovho testu.
+Keď výsledok vyjde: prvočíslo alebo pseudoprvočíslo, ide o pravdepodobnostný výsledok,
+pseudoprvočísla sú nepravé prvočísla.
+Pre lepšie výsledky sa otestuje viac základov (napr. 2, 3, 5, 7, 11, 13).
+Môžete tiež zadať matematické výrazy (napr. 2**13-1, 15!-1).
+Pre ukončenie programu vložte 0.`,
+        loading: "Načítavam Python prostredie...",
+        labelNumber: "Zadajte číslo:",
+        labelBase: "Zadajte základ a:",
+        buttonCheck: "Overiť prvočíselnosť"
+      }
+    };
+
+    // Funkcia na nastavenie textov podľa zvoleného jazyka
+    function setLanguage(lang) {
+      document.getElementById("heading").textContent = translations[lang].heading;
+      document.getElementById("instructions-text").textContent = translations[lang].instructions;
+      document.getElementById("pyodide-status").textContent = translations[lang].loading;
+      document.getElementById("label-number").textContent = translations[lang].labelNumber;
+      document.getElementById("label-base").textContent = translations[lang].labelBase;
+      document.getElementById("checkPrime").textContent = translations[lang].buttonCheck;
+    }
+
+    async function main() {
+      // Predvolený jazyk
+      let currentLang = "en";
+      setLanguage(currentLang);
+
+      // Pri zmene jazyka v selecte
+      const langSelect = document.getElementById("languageSelect");
+      langSelect.addEventListener("change", () => {
+        currentLang = langSelect.value;
+        setLanguage(currentLang);
+      });
+
+      // Načítanie Pyodide
+      let pyodide = await loadPyodide();
+      // Načítanie balíčkov (sympy)
+      await pyodide.loadPackage(["sympy"]);
+
+      // Skryť spinner a status, zobraziť app
+      document.getElementById("pyodide-spinner").classList.add("hidden");
+      document.getElementById("pyodide-status").classList.add("hidden");
+      document.getElementById("app").classList.remove("hidden");
+
+      // Python kód (bez gmpy2 a multiprocessing)
+      const pythonCode = `
+import sympy
+import math
+
+big_num = 10**20
+basic_field = [2, 3, 5, 7, 11, 13]
+big_num2 = 10**12
+
+def classical_filter(n):
+    for divisor in basic_field:
+        if n % divisor == 0 and n != divisor:
+            return f"Number is composite, divisible by {divisor}"
+    k = 1
+    end = round(math.sqrt(big_num2)) + 1
+    while True:
+        divisor1 = 6 * k - 1
+        divisor2 = 6 * k + 1
+        if divisor1 > end:
+            break
+        if n % divisor1 == 0 and n != divisor1:
+            return f"Number is composite, divisible by {divisor1}"
+        if n % divisor2 == 0 and n != divisor2:
+            return f"Number is composite, divisible by {divisor2}"
+        k += 1
+    return None
+
+def fermat_test(n, a):
+    remainder = pow(a, n-1, n)
+    if remainder == 1:
+        return (a, True)
+    else:
+        return (a, False)
+
+def run_fermat_tests(n, bases):
+    results = []
+    for base in bases:
+        results.append(fermat_test(n, base))
+    return results
+
+def check_prime(n, base_input):
+    if n < big_num:
+        if sympy.isprime(n):
+            return "Number is prime."
+        else:
+            return "Number is composite."
+    filter_result = classical_filter(n)
+    if filter_result is not None:
+        return filter_result
+    default_bases = [2, 3, 5, 7, 11, 13]
+    bases = sorted(set([base_input] + default_bases))
+    results = run_fermat_tests(n, bases)
+    composite_found = False
+    results_text = ""
+    for base, passed in results:
+        if passed:
+            results_text += f"Base {base}: Pass\\n"
+        else:
+            results_text += f"Base {base}: Fail\\n"
+            composite_found = True
+    if composite_found:
+        final_text = "Number is composite based on Fermat test(s):\\n" + results_text
+    else:
+        final_text = "Number is prime or pseudoprime based on Fermat tests:\\n" + results_text
+    return final_text
+`;
+      // Definovanie funkcií v Pyodide
+      await pyodide.runPythonAsync(pythonCode);
+
+      // Event handler pre tlačidlo "Check Prime"
+      document.getElementById("checkPrime").addEventListener("click", async () => {
+        const nStr = document.getElementById("numberInput").value.trim();
+        let n;
+        try {
+          // Hodnota nStr sa vyhodnotí cez sympy v Pythone
+          pyodide.globals.set("n_expr", nStr);
+          n = pyodide.runPython(`int(sympy.sympify(n_expr))`);
+        } catch (e) {
+          document.getElementById("result").textContent = "Invalid number expression.";
+          return;
+        }
+        if (n === 0) {
+          document.getElementById("result").textContent = "Exiting...";
+          return;
+        }
+        const baseStr = document.getElementById("baseInput").value.trim();
+        let baseInput = parseInt(baseStr);
+        if (isNaN(baseInput)) {
+          document.getElementById("result").textContent = "Invalid base input.";
+          return;
+        }
+        // Indikácia, že prebieha výpočet
+        document.getElementById("result").textContent = "Running Fermat tests, please wait...";
+
+        // Zavolanie check_prime v Pythone
+        const result = await pyodide.runPythonAsync(`check_prime(${n}, ${baseInput})`);
+        document.getElementById("result").textContent = result;
+      });
+    }
+
+    main();
+  </script>
+</body>
+</html>
+<!-- End of file -->
