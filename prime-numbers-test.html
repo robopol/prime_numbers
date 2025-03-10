@@ -15,6 +15,7 @@
       max-width: 700px;
       margin: auto;
       padding: 20px;
+      position: relative; /* To allow absolute/float positioning inside */
     }
     h1 {
       text-align: center;
@@ -50,7 +51,7 @@
       background-color: #1C1C1C;
       color: white;
     }
-    button, select {
+    button {
       background-color: #424242;
       color: white;
       padding: 10px 20px;
@@ -60,7 +61,7 @@
       cursor: pointer;
       font-size: 16px;
     }
-    button:hover, select:hover {
+    button:hover {
       background-color: #333333;
     }
     #result {
@@ -70,15 +71,24 @@
     .section {
       margin-bottom: 20px;
     }
+    /* Jazykový prepínač viditeľný vpravo hore */
     #languageSelect {
       float: right;
-      margin-top: -50px;
+      background-color: #424242;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      padding: 4px 8px;
+      margin-top: 10px;
+      margin-right: 10px;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <!-- Jazykový prepínač (SK/EN) -->
+    <!-- Prepínač jazyka (SK/ENG) -->
     <select id="languageSelect">
       <option value="en">English</option>
       <option value="sk">Slovensky</option>
@@ -112,7 +122,7 @@
   <!-- Pyodide -->
   <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
   <script>
-    // Dvojjazyčné texty rozhrania
+    // Texty rozhrania v angličtine a slovenčine
     const translations = {
       en: {
         heading: "Prime Number Test",
@@ -156,11 +166,11 @@ Pre ukončenie programu vložte 0.`,
     }
 
     async function main() {
-      // Predvolený jazyk
+      // Predvolený jazyk (angličtina)
       let currentLang = "en";
       setLanguage(currentLang);
 
-      // Pri zmene jazyka v selecte
+      // Reakcia na zmenu jazyka v selecte
       const langSelect = document.getElementById("languageSelect");
       langSelect.addEventListener("change", () => {
         currentLang = langSelect.value;
