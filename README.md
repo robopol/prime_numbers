@@ -4,7 +4,7 @@ This repository contains various materials and scripts related to prime numbers:
 
 ## Contents
 
-- **[Methods of finding prime numbers.pdf](Methods of finding prime numbers.pdf)**  
+- **[Methods of finding prime numbers.pdf](Methods%20of%20finding%20prime%20numbers.pdf)**  
   A document providing a theoretical and practical overview of prime number testing methods.
 
 - **[prime_numbers.pdf](prime_numbers.pdf)**  
@@ -24,6 +24,25 @@ This repository contains various materials and scripts related to prime numbers:
 
 - **[setup_prime_test.exe](setup_prime_test.exe)**  
   An executable or installer for Windows, possibly providing an easy way to install/use the prime testing application.
+
+## Algorithm Capabilities
+
+This algorithm combines a classical filtering method with a parallelized Fermat primality test optimized by GMP via gmpy2. Its key features include:
+
+- **Efficient Small Divisor Filtering:**  
+  Quickly eliminates composite numbers by checking divisibility using small primes (e.g., 2, 3, 5, 7, 11, 13) and potential divisors of the form 6k±1.
+
+- **Parallelized Fermat Testing:**  
+  Runs Fermat tests for multiple bases concurrently using Python's multiprocessing, allowing rapid detection of composite numbers.
+
+- **GMP-based Optimization:**  
+  Leverages the highly optimized GMP library through gmpy2 to perform modular exponentiation on extremely large numbers efficiently.
+
+- **High Performance on Large Numbers:**  
+  Benchmarks on standard desktop PCs show that the algorithm can test very large numbers (e.g., up to 2**100000) in just a few seconds.
+
+- **Robust Filtering of Pseudoprimes:**  
+  The combination of classical filtering and Fermat testing effectively identifies pseudoprimes, making this approach competitive with the Miller-Rabin test in both speed and reliability.
 
 ## Installation and Usage
 
