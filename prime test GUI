@@ -133,7 +133,7 @@ with pseudoprimes having a low likelihood.
 Pseudoprimes are non-genuine primes.
 For enhanced results, several bases (e.g., 2, 3, 5, 7, 11, 13) will be tested sequentially.
 You can also input mathematical expressions (e.g., 2**13-1, 15!-1).
-To conclude the program, enter 0.`,
+`,
         loading: "Loading Python environment...",
         labelNumber: "Enter the number:",
         labelBase: "Enter the basis a:",
@@ -147,7 +147,7 @@ Keď výsledok vyjde: prvočíslo alebo pseudoprvočíslo, ide o pravdepodobnost
 pseudoprvočísla sú nepravé prvočísla.
 Pre lepšie výsledky sa otestuje viac základov (napr. 2, 3, 5, 7, 11, 13).
 Môžete tiež zadať matematické výrazy (napr. 2**13-1, 15!-1).
-Pre ukončenie programu vložte 0.`,
+`,
         loading: "Načítavam Python prostredie...",
         labelNumber: "Zadajte číslo:",
         labelBase: "Zadajte základ a:",
