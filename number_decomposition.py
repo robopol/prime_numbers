@@ -152,8 +152,7 @@ button_font = ("Helvetica", 12, "bold")
 
 instruction_text = (
     "Prime Decomposition of Large Numbers\n"
-    "Enter a number (you can use mathematical expressions, e.g., 2**100) below.\n"
-    "To end the program, enter 0."
+    "Enter a number (you can use mathematical expressions, e.g., 2**100) below.\n"    
 )
 instruction_label = tk.Label(
     root, text=instruction_text, bg="#2E2E2E", fg="white",
