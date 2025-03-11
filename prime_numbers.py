@@ -188,8 +188,7 @@ instruction_text = (
     "with pseudoprimes having a low likelihood.\n\n"
     "Pseudoprimes are non-genuine primes. For enhanced results, several bases (e.g., 2, 3, 5, 7, 11, 13)\n"
     "will be tested concurrently using multiprocessing.\n\n"
-    "Note: You can also input mathematical expressions. Example: 2**13-1, 15!-1\n"
-    "To conclude the program, enter 0."
+    "Note: You can also input mathematical expressions. Example: 2**13-1, 15!-1\n"    
 )
 
 instructions_label = tk.Label(
