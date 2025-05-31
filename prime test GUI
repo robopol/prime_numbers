@@ -11,6 +11,9 @@ import time
 import concurrent.futures
 from tkinter import ttk
 
+# Initialize gmpy2 random state for better randomness across runs
+gmpy2.random_state(int(time.time()))
+
 # List of known exponents p for Mersenne primes (M_p = 2^p - 1)
 # Source: https://www.mersenne.org/primes/ (GIMPS) - as of October 2024
 KNOWN_MERSENNE_EXPONENTS = {
@@ -218,165 +221,360 @@ def get_input():
     input_string = text_number.get("1.0", tk.END).strip()
     return parse_input_to_int(input_string)
 
-def get_a():
+def parse_bases_input(bases_input_str, n_mpz_for_random_generation):
     """
-    Reads the base (a) from the corresponding input field
-    and returns it as an integer or None on error.
+    Parses the bases input string.
+    Returns a list of integer bases or None on error.
+    If bases_input_str is empty, returns a list of DEFAULT_NUM_RANDOM_BASES random bases.
+    If bases_input_str is a single number, it's treated as the count of random bases.
+    If bases_input_str is a comma-separated list, it's treated as a list of specific bases.
+    n_mpz_for_random_generation is used to determine the range for random bases.
     """
-    input_string = entry_a.get().strip()
-    try:
-        number_int = int(input_string)
-    except Exception:
-        messagebox.showerror("Input Error", "Please insert only integer values for base 'a'") # Clarified error message
-        return None
-    return number_int
+    DEFAULT_NUM_RANDOM_BASES = 7
+    bases_to_test = []
+
+    if not bases_input_str: # Empty input, use default number of random bases
+        num_random_bases_to_generate = DEFAULT_NUM_RANDOM_BASES
+    elif ',' in bases_input_str: # Comma-separated list of specific bases
+        try:
+            bases_to_test = [int(b.strip()) for b in bases_input_str.split(',') if b.strip()]
+            if not bases_to_test: # e.g. input was just "," or ",,"
+                messagebox.showerror("Input Error", "Invalid list of bases provided.")
+                return None
+            for b in bases_to_test:
+                if b <= 1: # Bases must be > 1
+                    messagebox.showerror("Input Error", f"Invalid base: {b}. Bases must be greater than 1.")
+                    return None
+                # We don't check b < n_mpz here, as n_mpz might not be fully determined when this is first called for GUI update
+                # This check (b < n) is done before adding to args_for_pool in run_euler_tests_parallel
+            return bases_to_test
+        except ValueError:
+            messagebox.showerror("Input Error", "Invalid format for bases. Please use comma-separated integers (e.g., 2,3,5) or a single number for random bases count.")
+            return None
+    else: # Single number, treat as count of random bases
+        try:
+            num_random_bases_to_generate = int(bases_input_str)
+            if num_random_bases_to_generate <= 0:
+                messagebox.showerror("Input Error", "Number of random bases must be a positive integer.")
+                return None
+        except ValueError:
+            messagebox.showerror("Input Error", "Invalid input for bases. Please enter a number (for random bases count) or a comma-separated list of bases.")
+            return None
+
+    # Generate random bases if num_random_bases_to_generate is set
+    if num_random_bases_to_generate > 0:
+        if n_mpz_for_random_generation is None or n_mpz_for_random_generation <= 3:
+            # Not enough range for random bases or n is too small for meaningful test with random bases
+            # Fallback to a sensible default if possible, or indicate an issue.
+            # If n is 2 or 3, it's usually handled before this point (is_prime check).
+            # For n=3, only base 2 is possible for Euler if we strictly follow a < n-1 for random.
+            # Let's rely on the checks in run_euler_tests_parallel to filter unsuitable bases later.
+            # Here, we'll just try to generate if the count is positive.
+            # If n is very small, the set of unique random bases might be small.
+            pass # No specific error here, let later stages handle small n.
+
+        # Max possible unique bases are (n-2) - 2 + 1 = n-3, for bases in [2, n-2]
+        # (n_mpz - 1) is upper bound for random_state, n_mpz-3 is the count of numbers in [2, n-2]
+        # Range for random bases: [2, n-2]. So, n-1 must be >= 2 for gmpy2.mpz_random.
+        # And n-3 must be > 0 for mpz_random to have a range.
+        
+        max_possible_unique_random_bases = 0
+        if n_mpz_for_random_generation > 3: # mpz(3) - 3 = 0, so n must be > 3
+             max_possible_unique_random_bases = int(n_mpz_for_random_generation - 3)
+
+
+        actual_bases_to_generate = min(num_random_bases_to_generate, max_possible_unique_random_bases)
+        
+        if actual_bases_to_generate <= 0 and num_random_bases_to_generate > 0 and n_mpz_for_random_generation > 3 :
+             messagebox.showwarning("Bases Warning", f"Cannot generate {num_random_bases_to_generate} random bases for n={n_mpz_for_random_generation}. Not enough unique options.")
+             # We might still proceed if some default bases can be used or if user insists.
+             # For now, let's return empty if we can't generate what's asked.
+             # Or should we return a default like [2] if n is 3?
+             # The calling function check_prime will handle this better with its existing logic.
+             # Let's return an empty list, and check_prime can decide to use default_small_primes_bases if needed.
+             return [] # Indicates couldn't generate requested randoms.
+
+        generated_bases_set = set()
+        # Ensure random_state is initialized, (done globally now)
+
+        if actual_bases_to_generate > 0:
+            attempts = 0
+            # Generous max_attempts, especially if n is huge and collisions are truly unlikely.
+            # If actual_bases_to_generate is small (e.g. 7), this is 700.
+            MAX_GENERATION_ATTEMPTS = actual_bases_to_generate * 100 
+
+            # Get the current random state object ONCE before the loop
+            current_random_state = gmpy2.random_state()
+
+            while len(generated_bases_set) < actual_bases_to_generate and attempts < MAX_GENERATION_ATTEMPTS:
+                # Generate random base in [2, n-2]
+                # mpz_random(state, limit) generates in [0, limit-1]
+                # So, limit should be (n-2) - 2 + 1 = n-3 (value of n_mpz_for_random_generation - 3)
+                # And then add 2 to shift to [2, n-2]
+                if n_mpz_for_random_generation - 3 > 0 : # ensure limit for mpz_random is positive
+                    # mpz_random's second arg is an exclusive upper bound for generated numbers starting from 0.
+                    # So, mpz_random(state, X) gives numbers in [0, X-1].
+                    # We want numbers in [2, n-2]. The size of this range is (n-2) - 2 + 1 = n-3.
+                    # So we generate a random number in [0, (n-3)-1] i.e. [0, n-4]
+                    # by calling mpz_random(state, n-3).
+                    # Then we add 2 to this result, to get a range of [2, n-4+2] = [2, n-2].
+                    # Pass the SAME state object to each call
+                    rand_base_mpz = gmpy2.mpz_random(current_random_state, n_mpz_for_random_generation - 3) + mpz(2)
+                    generated_bases_set.add(int(rand_base_mpz)) # Store as int
+                else:
+                    # This case (n_mpz_for_random_generation - 3 <= 0) implies n <= 3.
+                    # If n=3, max_possible_unique_random_bases is 0, so actual_bases_to_generate should be 0.
+                    # This loop (actual_bases_to_generate > 0) should not run for n <= 3 normally.
+                    # Breaking here is a safeguard if somehow entered.
+                    break 
+                attempts += 1
+            
+            # Warning message if not enough unique bases were generated
+            # Show warning only if we intended to generate some, and generated less than planned from the request.
+            if len(generated_bases_set) < actual_bases_to_generate and actual_bases_to_generate > 0:
+                 messagebox.showwarning("Bases Warning", f"Could only generate {len(generated_bases_set)} unique random bases out of {actual_bases_to_generate} planned (from {num_random_bases_to_generate} requested for n). Max attempts: {attempts}.")
+            elif len(generated_bases_set) < num_random_bases_to_generate and num_random_bases_to_generate == actual_bases_to_generate and actual_bases_to_generate > 0:
+                 # This case is for when max_possible_unique_random_bases was not a constraint, but we still failed to generate num_random_bases_to_generate
+                 messagebox.showwarning("Bases Warning", f"Could only generate {len(generated_bases_set)} unique random bases out of {num_random_bases_to_generate} requested for n. Max attempts: {attempts}.")
+
+        bases_to_test = sorted(list(generated_bases_set))
+        
+    return bases_to_test
 
 def check_prime():
     """
     Main function triggered by the 'Check Prime' button.
     Obtains the number n, decides on the testing method, and displays the result.
     """
-    input_string = text_number.get("1.0", tk.END).strip()
+    input_string_n = text_number.get("1.0", tk.END).strip()
 
-    if not input_string: 
+    if not input_string_n:
         return
-    if input_string == "0": 
+    if input_string_n == "0":
         root.quit()
         return
 
-    start_time_overall = time.time() 
+    start_time_overall = time.time()
 
-    if check_direct_mersenne_expression(input_string, start_time_overall, root, progress_bar): # MODIFIED: removed result_text_area
-        return 
-
-    n_input = parse_input_to_int(input_string)
-
-    if n_input is None: 
-        return
-    
-    progress_bar['value'] = 0 
+    # Update progress bar immediately for responsiveness
+    if progress_bar:
+        progress_bar['value'] = 0
     root.update_idletasks()
 
-    try:
-        n_mpz_val = mpz(n_input) 
-    except Exception as e: 
-        messagebox.showerror("Input Error", f"Could not convert input to a large number: {e}")
-        update_result_text(f"Error: Could not process input {n_input}") # MODIFIED: Use helper
+    if check_direct_mersenne_expression(input_string_n, start_time_overall, root, progress_bar):
         return
 
-    if n_mpz_val <= 1:
-        update_result_text(f"{n_mpz_val} is not prime (by definition).") # MODIFIED: Use helper
-        progress_bar['value'] = PROGRESS_BAR_MAX 
-        root.update_idletasks()
-        return
-    if n_mpz_val == 2 or n_mpz_val == 3 or n_mpz_val == 5 or n_mpz_val == 7:
-        end_time_overall = time.time()
-        update_result_text(f"{n_mpz_val} is prime.\n(Verified in {end_time_overall - start_time_overall:.4f} seconds)") # MODIFIED: Use helper
-        progress_bar['value'] = PROGRESS_BAR_MAX 
-        root.update_idletasks()
-        return
+    n_mpz = parse_input_to_mpz(input_string_n) # Changed from parse_input_to_int to get mpz directly
 
-    if check_known_mersenne_primes(n_mpz_val, start_time_overall, root, progress_bar): # MODIFIED: removed result_text_area
+    if n_mpz is None:
+        if progress_bar: progress_bar['value'] = 0
+        return # Error already shown by parse_input_to_mpz
+
+    # Handle n=0, n=1, n=negative (already handled by parse_input_to_mpz if it returns None for these)
+    # but if parse_input_to_mpz is lenient:
+    if n_mpz <= 0:
+        update_result_text(f"The number must be a positive integer greater than 0 for primality testing.")
+        if progress_bar: progress_bar['value'] = 0
         return
-    
-    progress_bar['value'] = 10 
-    root.update_idletasks()
-
-    if n_input < big_num:
-        is_sympy_prime = sympy.isprime(n_input) 
-        end_time_overall = time.time()
-        result_text_sympy = f"{n_input} is {'prime' if is_sympy_prime else 'composite'} (verified by SymPy)."
-        update_result_text(f"{result_text_sympy}\n(Tested in {end_time_overall - start_time_overall:.4f} seconds)") # MODIFIED: Use helper & combined text
-        progress_bar['value'] = PROGRESS_BAR_MAX
-        root.update_idletasks()
-        return
-
-    progress_bar['value'] = 20
-    root.update_idletasks()
-
-    filter_result = classical_filter(n_mpz_val)
-    if filter_result is not None:
-        end_time_overall = time.time()
-        update_result_text(f"{filter_result}\n(Filtered in {end_time_overall - start_time_overall:.4f} seconds)") # MODIFIED: Use helper
-        progress_bar['value'] = PROGRESS_BAR_MAX 
-        root.update_idletasks()
-        return
-
-    progress_bar['value'] = 40 
-    root.update_idletasks()
-
-    base_input_val = get_a() # Renamed to avoid conflict
-    if base_input_val is None:
-        return
-    # It's good practice to ensure the user-provided base isn't 0 or 1, 
-    # or negative, as they are not meaningful for these tests.
-    if base_input_val <= 1:
-        messagebox.showerror("Input Error", "Base 'a' must be greater than 1.")
+    if n_mpz == 1:
+        update_result_text("1 is neither prime nor composite (by definition).")
+        if progress_bar: progress_bar['value'] = 0
         return
         
-    default_bases = [2, 3, 5, 7, 11, 13] # Standard small prime bases
-    # Ensure user base is added and the list contains unique, sorted bases.
-    # Filter out bases >= n_mpz_val if n_mpz_val is small, though test handles it.
-    bases_to_test = sorted(list(set([base_input_val] + default_bases)))
-    # Filter out bases that are not suitable (e.g. >= n or <=1, though euler_test_single_base might handle some)
-    bases_to_test = [b for b in bases_to_test if 1 < b < n_mpz_val]
-    if not bases_to_test: # If all default bases are >= n or user base was unsuitable
-        if 1 < base_input_val < n_mpz_val: # User input was fine, but defaults were too large
-            bases_to_test = [base_input_val]
-        else: # No suitable bases found, e.g. n is very small (2,3) or user base also unsuitable
-             # This case should ideally be caught earlier (n=2,3 are prime). 
-             # If n is e.g. 4, bases [2,3] are fine. If n=2, list will be empty.
-             # If n_mpz_val is very small (e.g., 2 or 3), this list might be empty.
-             # However, such small n should already be handled by direct checks.
-             # For robustness, if list is empty, maybe default to a single small prime if n is large enough e.g. 2 if n > 2
-            if n_mpz_val > 2 and not any(1 < b_ < n_mpz_val for b_ in default_bases + [base_input_val]):
-                 # This means n is small, and all typical bases are too large or invalid
-                 # This should have been caught by n_input < big_num or direct n checks
-                 update_result_text(f"{n_mpz_val} is too small for the selected bases or direct primality test applies.")
-                 progress_bar['value'] = PROGRESS_BAR_MAX
-                 return
-            elif not bases_to_test: # Still no bases, and n wasn't caught by above logic for very small n
-                 # Fallback if n is not extremely small but chosen bases + user base are not < n
-                 # This typically means n is prime (2,3,5...) and caught earlier, or composite and caught by filter
-                 # Or user entered a base >= n. The check `1 < b < n_mpz_val` is crucial.
-                 # If no bases are left, it might imply sympy.isprime should have been used or n is very small.
-                 # For now, let's ensure that if n_mpz_val itself is small, it's handled before this point.
-                 # If bases_to_test is empty AND n_mpz_val is > threshold for direct checks (e.g. > 7)
-                 # AND sympy.isprime wasn't used (n_mpz_val >= big_num), then it is an issue.
-                 # The n_input < big_num check should cover most of these.
-                 # For now, if no valid bases, report it.
-                 update_result_text(f"No suitable bases found for testing {n_mpz_val} (bases must be >1 and <N).")
-                 progress_bar['value'] = PROGRESS_BAR_MAX
-                 return
-
-
-    update_result_text("Running Euler-based tests, please wait...") # MODIFIED: Use helper
+    # Initial progress update
+    current_progress_val = 5
+    if progress_bar:
+        progress_bar['value'] = current_progress_val
     root.update_idletasks()
 
-    # Call the new parallel Euler test function
-    results = run_euler_tests_parallel(n_mpz_val, bases_to_test, progress_bar, root, 50) # MODIFIED call
+    # Step 0: Direct check with gmpy2.is_prime() for small numbers or as a quick path
+    # For very large numbers, is_prime() itself can be slow as it's deterministic.
+    # Let's use it for smaller numbers for speed and accuracy.
+    # Threshold can be adjusted. For numbers > IS_PRIME_THRESHOLD, use our probabilistic method.
+    IS_PRIME_THRESHOLD = 10**6 # Example threshold
+    
+    if n_mpz < IS_PRIME_THRESHOLD:
+        is_prime_gmpy_result = gmpy2.is_prime(n_mpz)
+        end_time_check = time.time()
+        result_str = "prime" if is_prime_gmpy_result else "composite"
+        method_str = "gmpy2.is_prime()"
+        if n_mpz == 2 or n_mpz == 3 or n_mpz == 5 or n_mpz == 7: # Smallest primes
+             result_str = "prime" # Ensure they are marked prime
+        elif n_mpz % 2 == 0 and n_mpz > 2:
+            result_str = "composite, divisible by 2"
+        elif n_mpz % 3 == 0 and n_mpz > 3:
+            result_str = "composite, divisible by 3"
+        elif n_mpz % 5 == 0 and n_mpz > 5:
+             result_str = "composite, divisible by 5"
+        elif n_mpz % 7 == 0 and n_mpz > 7:
+             result_str = "composite, divisible by 7"
+             
+        update_result_text(f"The number is {result_str}.\n(Verified by {method_str} in {end_time_check - start_time_overall:.4f} seconds)")
+        if progress_bar: progress_bar['value'] = PROGRESS_BAR_MAX
+        return
+
+    # Step 0.5: Check against known Mersenne primes by value (if not caught by direct expression)
+    if check_known_mersenne_primes(n_mpz, start_time_overall, root, progress_bar):
+        return
+        
+    current_progress_val = 10
+    if progress_bar: progress_bar['value'] = current_progress_val
+    root.update_idletasks()
+
+    # Step 1: Classical Filter
+    filter_result = classical_filter(n_mpz) # classical_filter expects mpz
+    if filter_result:
+        end_time_check = time.time()
+        update_result_text(f"{filter_result}.\n(Verified by classical filter in {end_time_check - start_time_overall:.4f} seconds)")
+        if progress_bar: progress_bar['value'] = PROGRESS_BAR_MAX
+        return
+
+    current_progress_val = 25
+    if progress_bar: progress_bar['value'] = current_progress_val
+    root.update_idletasks()
+    
+    # Step 2: Parse bases for Euler Test
+    bases_input_str = entry_a.get().strip()
+    # Pass n_mpz to parse_bases_input for random generation range.
+    selected_bases_int_list = parse_bases_input(bases_input_str, n_mpz)
+
+    if selected_bases_int_list is None: # Error in parsing bases
+        if progress_bar: progress_bar['value'] = 0 # Reset progress
+        # Error message already shown by parse_bases_input
+        return
+
+    # If parse_bases_input returned empty (e.g. couldn't generate randoms for small n),
+    # and we still want to proceed, we might use a default set of small primes.
+    # This logic can be refined. For now, if it's empty, let's try small primes.
+    if not selected_bases_int_list and n_mpz > 3 : # n_mpz > 3 ensures there's at least base 2 to test
+        # Fallback to a few small prime bases if random generation failed or wasn't requested robustly for small n
+        # This ensures we at least try something if input was e.g. "1" random base for n=4
+        # Default small primes
+        default_small_primes_bases = [2, 3, 5, 7, 11, 13, 17]
+        # Filter them to be < n_mpz
+        selected_bases_int_list = [b for b in default_small_primes_bases if b < n_mpz]
+        if not selected_bases_int_list and n_mpz == mpz(3): # Special case for n=3, only base 2
+             selected_bases_int_list = [2]
+        elif not selected_bases_int_list and n_mpz > 3: # if all defaults are too large
+             # This case should be rare if n is reasonably large.
+             # If n is e.g. 5, [2,3] would be selected.
+             # If no bases can be selected, the test will effectively be skipped.
+             messagebox.showwarning("Bases Warning", f"Could not determine suitable bases for n={n_mpz}. Using defaults if possible, or no bases.")
+
+
+    if not selected_bases_int_list:
+        # This means no bases were specified, random generation failed/wasn't applicable, AND fallback defaults are also unsuitable (e.g. n is too small like 2)
+        # Or if n=3 and [2] was selected, this block is skipped.
+        # For n=2, it's already handled by is_prime or direct check.
+        # If we reach here with no bases for a larger n, it's an issue.
+        # However, gmpy2.is_prime likely caught n=2.
+        # If n=3, selected_bases_int_list should be [2].
+        # This block is more a safeguard.
+        if n_mpz > 2: # Only show warning if n is something that should have been testable
+             update_result_text(f"Could not perform Euler test as no suitable bases were provided or could be determined (e.g., number is too small for chosen/default bases, or random generation failed).")
+        # If n_mpz was 2, it's prime, already handled.
+        # If n_mpz was 1, also handled.
+        if progress_bar: progress_bar['value'] = 0
+        return
+
+    # Step 3: Euler Probabilistic Primality Test (Parallel)
+    update_result_text(f"Testing with Euler test using bases: {selected_bases_int_list}...")
+    root.update_idletasks()
+
+    euler_results = run_euler_tests_parallel(n_mpz, selected_bases_int_list, progress_bar, root, current_progress_val)
+
+    end_time_overall = time.time()
+    total_time = end_time_overall - start_time_overall
 
     all_passed = True
-    results_text_euler = "" 
-    if not results: # Should not happen if bases_to_test was not empty
-        all_passed = False # Or handle as inconclusive
-        results_text_euler = "No bases were tested.\n"
-    else:
-        for base, passed in results: 
-            results_text_euler += f"Base {base}: {'Pass' if passed else 'Fail'}\n"
-            if not passed:
-                all_passed = False
+    failed_bases = []
+    passed_bases = []
+
+    for base, passed_test in euler_results:
+        if passed_test:
+            passed_bases.append(base)
+        else:
+            all_passed = False
+            failed_bases.append(base)
+            # If any base fails, n is definitely composite (if gcd(base,n)=1 was met in worker)
+            # Or the base was unsuitable (e.g. gcd(base,n)!=1), which also implies composite if base < n.
+            # The worker function euler_test_single_base returns (base, False) if gcd(a,n)!=1.
+            # So, a False here means either Euler's criterion failed OR gcd(a,n)!=1 was found.
+            # If gcd(a,n)!=1 and a < n, then n is composite.
+            
+            # Check if the failure was due to gcd(a,n) != 1
+            # We need to re-check gcd here as the worker doesn't explicitly return this info, only pass/fail.
+            # This is a bit redundant but useful for a more informative message.
+            # Alternatively, the worker could return a more detailed status.
+            factor_found_with_base = None
+            if mpz(base) < n_mpz : # only makes sense if base < n
+                common_divisor = gmpy2.gcd(mpz(base), n_mpz)
+                if common_divisor != 1:
+                    factor_found_with_base = common_divisor
+
+            if factor_found_with_base and factor_found_with_base != n_mpz : # Ensure factor is not n itself
+                update_result_text(f"The number is composite.\nFailed Euler test for base {base} (found factor {factor_found_with_base}).\nTested in {total_time:.4f} seconds.")
+            else:
+                update_result_text(f"The number is composite.\nFailed Euler test for base {base}.\nTested in {total_time:.4f} seconds.")
+            
+            if progress_bar: progress_bar['value'] = PROGRESS_BAR_MAX
+            return # Stop on first failure
 
     if all_passed:
-        final_text = "Number is likely prime (passed Euler-based tests for all bases):\n" + results_text_euler
-    else:
-        final_text = "Number is composite based on Euler-based test(s):\n" + results_text_euler
+        # If all selected bases passed the Euler test
+        if not euler_results: # Should not happen if selected_bases_int_list was not empty
+             update_result_text(f"No Euler tests were performed. Result inconclusive. (Time: {total_time:.4f}s)")
+        else:
+            update_result_text(f"The number is likely prime (passed Euler test for bases: {passed_bases}).\nTested in {total_time:.4f} seconds.")
     
-    end_time_overall = time.time() 
-    final_text += f"\nTotal time: {end_time_overall - start_time_overall:.4f} seconds."
-    update_result_text(final_text) # MODIFIED: Use helper
-    progress_bar['value'] = PROGRESS_BAR_MAX 
-    root.update_idletasks()
+    if progress_bar: progress_bar['value'] = PROGRESS_BAR_MAX
+
+
+def parse_input_to_mpz(input_str):
+    """
+    Parses an input string (number or mathematical expression) using sympy
+    and converts it to a gmpy2.mpz object.
+    Returns an mpz object or None on error (and shows a messagebox).
+    """
+    try:
+        # Allow evaluation of expressions like 2**127-1
+        # For very large numbers from expressions, sympy might be slow or hit limits.
+        # We might need to be careful here.
+        # Using a timeout or direct gmpy2 parsing if possible for simple integers.
+        
+        # Try direct int conversion first for simple large numbers
+        try:
+            if input_str.isdigit() or (input_str.startswith('-') and input_str[1:].isdigit()):
+                 n_mpz = mpz(input_str)
+                 if n_mpz <= 0: # Primality typically for > 1
+                     messagebox.showerror("Input Error", f"Number {input_str} must be a positive integer greater than 1 for primality testing.")
+                     return None
+                 return n_mpz
+        except ValueError:
+            pass # Not a simple integer string, try sympy
+
+        # If not a simple integer string, try sympy for expressions
+        # Check for potential harmful expressions before sympify - basic check
+        if any(kw in input_str for kw in ['import', 'eval', 'exec', 'lambda', '__']):
+            messagebox.showerror("Input Error", "Input contains potentially unsafe expressions.")
+            return None
+
+        number_expr = sympy.sympify(input_str)
+        if not number_expr.is_number:
+            messagebox.showerror("Input Error", f"Expression '{input_str}' did not evaluate to a number.")
+            return None
+        
+        # Convert to string then to mpz to handle potentially huge numbers from sympy
+        n_mpz = mpz(str(number_expr))
+
+        if n_mpz <= 0: # Primality typically for > 1
+             messagebox.showerror("Input Error", f"Evaluated number {n_mpz} must be a positive integer greater than 1 for primality testing.")
+             return None
+        return n_mpz
+        
+    except Exception as e:
+        messagebox.showerror("Input Error", f"Could not parse '{input_str}'. Please insert a valid integer or mathematical expression.\\nDetails: {e}")
+        return None
 
 # -------------------  IMPROVED GUI DESIGN  -------------------
 
@@ -478,15 +676,15 @@ text_number.config(yscrollcommand=scrollbar_y.set)
 
 # Input Base 'a'
 tk.Label(
-    input_frame, text="Test with base 'a' (used in Euler test, defaults exist):", bg=BG_COLOR, fg=TEXT_COLOR,
+    input_frame, text="Bases 'a' (e.g., 5 for 5 random bases, or 2,3,7 for specific bases):", bg=BG_COLOR, fg=TEXT_COLOR,
     font=LABEL_FONT
-).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0)) # Align left
+).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
 
 entry_a = tk.Entry(
-    input_frame, width=15, bg=INPUT_BG_COLOR, fg=TITLE_TEXT_COLOR, # A bit wider
+    input_frame, width=60, bg=INPUT_BG_COLOR, fg=TITLE_TEXT_COLOR, # A bit wider
     insertbackground=TITLE_TEXT_COLOR, font=LABEL_FONT, relief="solid", borderwidth=1, highlightthickness=1, highlightbackground=BORDER_COLOR
 )
-entry_a.insert(0, "2")
+entry_a.insert(0, "5")
 entry_a.grid(row=3, column=0, padx=5, pady=(0,10), sticky="w")
 
 # Configure grid column weights for input_frame to make text_number and entry_a expandable if needed
