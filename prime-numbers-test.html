@@ -246,8 +246,8 @@ Môžete zadať matematické výrazy (napr. 2**89-1, 15!-1).
       // Load Pyodide
       document.getElementById("pyodide-status").textContent = translations[currentLang].loading;
       let pyodide = await loadPyodide();
-      // Load packages (sympy). 'random' is part of Python standard library.
-      await pyodide.loadPackage(["sympy"]);
+      // Load packages (sympy and gmpy2). 'random' is part of Python standard library.
+      await pyodide.loadPackage(["sympy", "gmpy2"]);
 
       // Hide spinner and status, show app
       document.getElementById("pyodide-spinner").classList.add("hidden");
@@ -387,7 +387,7 @@ def check_prime(n_expr_str, bases_str):
 
     # Step 2: Euler Probabilistic Primality Test
     # Parse bases_str: comma-separated list of bases, or an integer for number of random bases
-    default_euler_bases = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41]
+    default_euler_bases = [2, 3, 5, 7, 11, 13, 17] # Reduced to 7 default bases
     bases_to_test = []
     
     if bases_str.strip():
@@ -395,30 +395,50 @@ def check_prime(n_expr_str, bases_str):
             # Check if it's a single integer (number of random bases)
             num_random_bases = int(bases_str)
             if num_random_bases <= 0:
-                 bases_to_test = default_euler_bases
+                 bases_to_test = [mpz(b) for b in default_euler_bases] # Corrected to use mpz for default bases too
             else:
-                # Generate num_random_bases, ensuring they are < n-1 and > 1
-                # Avoid duplicates and ensure they are not trivial.
-                # Max base to pick is n-2. Min is 2.
+                # Generate num_random_bases distinct random integers between 2 and n-2
                 if n <= 3: # Not enough range for random bases
-                    bases_to_test = [2] if n==3 else [] # Or handle as error for n=2
+                    bases_to_test = [mpz(2)] if n == mpz(3) else []
                 else:
-                    # Ensure range for random.sample is valid
-                    # k cannot be larger than population. Population is (n-2) - 2 + 1 = n-3
-                    # If n=4, pop_size = 1, base is 2. If n=5, pop_size = 2, bases are 2,3.
-                    population_size = int(n - 3)
-                    if population_size <= 0: # e.g. n=2,3
-                        bases_to_test = [mpz(2)] if n > 2 else []
+                    generated_bases_set = set()
+                    # Limit for mpz_random: we want bases in [2, n-2].
+                    # So, we generate random numbers in [0, (n-2)-2] = [0, n-4].
+                    # Then add 2 to the result. So limit for mpz_random is (n-4)+1 = n-3.
+                    # Ensure n-3 is not negative.
+                    upper_limit_for_mpz_random = n - mpz(3)
+
+                    if upper_limit_for_mpz_random < mpz(1):
+                        # This case implies n is 2 or 3. n=3 handled by (n == mpz(3))
+                        # if n=2, upper_limit_for_mpz_random = -1, so this is protective.
+                        bases_to_test = []
                     else:
-                        k_samples = min(num_random_bases, population_size)
-                        # random.sample expects population to be a sequence or set
-                        # Generate candidates from 2 to n-2
-                        base_candidates = range(2, int(n-1)) # Python range needs int
-                        if not base_candidates: # if n-1 <= 2 i.e. n <=3
-                             bases_to_test = [mpz(2)] if n > 2 else []
-                        else:
-                             selected_ints = random.sample(base_candidates, k_samples)
-                             bases_to_test = [mpz(b) for b in selected_ints]
+                        # Initialize a random state. Using hash of n for some variability.
+                        # Pyodide might not have a strong OS random source, so this is a basic seed.
+                        rand_state = gmpy2.random_state(hash(str(n)) + random.randint(0, 10000))
+                        
+                        # Attempt to generate num_random_bases unique random bases
+                        # Try a bit more times than num_random_bases to increase chance of getting unique ones
+                        # if the range of available bases is much larger than num_random_bases.
+                        # If num_random_bases is close to or larger than available_distinct_bases,
+                        # this loop might be inefficient or not find enough unique bases.
+                        available_distinct_bases_count = int(n - mpz(3)) # Count of numbers in [2, n-2] is (n-2)-2+1 = n-3
+                        
+                        actual_bases_to_generate = min(num_random_bases, available_distinct_bases_count if available_distinct_bases_count > 0 else 0)
+
+                        for _ in range(actual_bases_to_generate * 5): # Try up to 5x to get unique values
+                            if len(generated_bases_set) >= actual_bases_to_generate:
+                                break
+                            try:
+                                random_offset = gmpy2.mpz_random(rand_state, upper_limit_for_mpz_random)
+                                a_base = mpz(2) + random_offset # Generates in [2, n-2]
+                                if 1 < a_base < n: # Double check, should be guaranteed by logic if n > 3
+                                    generated_bases_set.add(a_base)
+                            except Exception: # Catch any error during random generation
+                                pass # Silently ignore if a random base fails to generate
+                        bases_to_test = list(generated_bases_set)
+                        # If fewer than requested bases were generated (e.g. due to small range or collisions)
+                        # this is handled by the list being shorter. This is acceptable.
         except ValueError:
             # Assume comma-separated list of bases
             try:
