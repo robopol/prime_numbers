@@ -4,86 +4,147 @@
   <meta charset="UTF-8" />
   <title>Prime Number Test</title>
   <style>
-    body {
-      background-color: #2E2E2E;
-      color: white;
-      font-family: Helvetica, sans-serif;
+    /* General reset and base styles */
+    *, *::before, *::after {
+      box-sizing: border-box;
       margin: 0;
       padding: 0;
     }
+
+    body {
+      background-color: #0F172A; /* Dark Slate Blue */
+      color: #CBD5E1; /* Light Slate Gray - for text */
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      line-height: 1.6;
+    }
+
     .container {
       max-width: 700px;
-      margin: auto;
-      padding: 20px;
-      position: relative; /* To allow absolute/float positioning inside */
+      margin: 2rem auto;
+      padding: 2rem;
+      background-color: #1E293B; /* Slightly Lighter Slate Blue */
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     }
+
     h1 {
       text-align: center;
-      margin-bottom: 0.5em;
+      margin-bottom: 1.5em;
+      color: #E2E8F0; /* Even Lighter Slate Gray */
+      font-size: 2.25rem;
     }
+
     .spinner {
-      border: 8px solid #f3f3f3;
-      border-top: 8px solid #424242;
+      border: 6px solid #334155; /* Medium Slate Gray */
+      border-top: 6px solid #22D3EE; /* Bright Cyan - accent */
       border-radius: 50%;
-      width: 60px;
-      height: 60px;
-      animation: spin 2s linear infinite;
-      margin: 20px auto;
+      width: 50px;
+      height: 50px;
+      animation: spin 1.5s linear infinite;
+      margin: 25px auto;
     }
+
     @keyframes spin {
       0% { transform: rotate(0deg); }
       100% { transform: rotate(360deg); }
     }
+
     .hidden {
       display: none;
     }
+
     label {
       display: block;
-      margin-top: 15px;
+      margin-top: 1rem;
+      margin-bottom: 0.5rem;
+      font-weight: 500;
+      color: #94A3B8; /* Lighter Slate Gray for labels */
     }
+
     textarea, input[type="text"] {
       width: 100%;
-      padding: 8px;
+      padding: 12px;
       margin-top: 5px;
-      border: none;
-      border-radius: 4px;
-      box-sizing: border-box;
-      background-color: #1C1C1C;
-      color: white;
+      border: 1px solid #334155; /* Medium Slate Gray */
+      border-radius: 6px;
+      background-color: #0F172A; /* Dark Slate Blue - same as body or slightly different */
+      color: #CBD5E1; /* Light Slate Gray */
+      font-size: 1rem;
+      transition: border-color 0.3s ease, box-shadow 0.3s ease;
     }
+
+    textarea:focus, input[type="text"]:focus {
+      outline: none;
+      border-color: #22D3EE; /* Bright Cyan - accent */
+      box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.3);
+    }
+
     button {
-      background-color: #424242;
-      color: white;
-      padding: 10px 20px;
-      margin-top: 15px;
+      background-color: #22D3EE; /* Bright Cyan - accent */
+      color: #0F172A; /* Dark Slate Blue - for contrast on button */
+      padding: 12px 24px;
+      margin-top: 1.5rem;
       border: none;
-      border-radius: 4px;
+      border-radius: 6px;
       cursor: pointer;
-      font-size: 16px;
+      font-size: 1rem;
+      font-weight: 600;
+      transition: background-color 0.3s ease, transform 0.1s ease;
+      display: block; /* Make button block to center it easily if needed or for full width */
+      width: auto; /* Auto width by default */
+      margin-left: auto; /* For aligning to right if mixed with other inline elements */
+      margin-right: auto; /* For centering if it's the only element or display block */
     }
+
     button:hover {
-      background-color: #333333;
+      background-color: #0E7490; /* Darker Cyan */
+      transform: translateY(-1px);
     }
+    
+    button:active {
+        transform: translateY(0px);
+    }
+
     #result {
-      margin-top: 20px;
+      margin-top: 1.5rem;
+      padding: 1rem;
+      background-color: #0F172A; /* Dark Slate Blue */
+      border: 1px solid #334155; /* Medium Slate Gray */
+      border-radius: 6px;
       white-space: pre-wrap;
+      line-height: 1.5;
+      color: #E2E8F0; /* Lighter text for results */
     }
+
     .section {
-      margin-bottom: 20px;
+      margin-bottom: 1.5rem;
     }
-    /* Jazykový prepínač viditeľný vpravo hore */
+    
+    #pyodide-status {
+        text-align: center;
+        margin-bottom: 1rem;
+        color: #94A3B8; /* Lighter Slate Gray */
+    }
+
     #languageSelect {
-      float: right;
-      background-color: #424242;
-      color: white;
-      border: none;
-      border-radius: 4px;
-      font-size: 16px;
-      padding: 4px 8px;
-      margin-top: 10px;
-      margin-right: 10px;
+      position: absolute; /* Position relative to container */
+      top: 20px;
+      right: 20px;
+      background-color: #1E293B; /* Slightly Lighter Slate Blue */
+      color: #CBD5E1; /* Light Slate Gray */
+      border: 1px solid #334155; /* Medium Slate Gray */
+      border-radius: 6px;
+      font-size: 0.9rem;
+      padding: 8px 12px;
       cursor: pointer;
+      transition: border-color 0.3s ease;
     }
+
+    #languageSelect:focus {
+      outline: none;
+      border-color: #22D3EE; /* Bright Cyan - accent */
+    }
+
   </style>
 </head>
 <body>
@@ -126,31 +187,30 @@
     const translations = {
       en: {
         heading: "Prime Number Test",
-        instructions: `This program employs a classical algorithm (for numbers < 10^20) and an improved method
-for finding prime numbers using the small Fermat theorem.
-When it yields the outcome: prime or pseudoprime, it reflects a probability result,
-with pseudoprimes having a low likelihood.
-Pseudoprimes are non-genuine primes.
-For enhanced results, several bases (e.g., 2, 3, 5, 7, 11, 13) will be tested sequentially.
-You can also input mathematical expressions (e.g., 2**13-1, 15!-1).
+        instructions: `This program uses a classical algorithm for initial checks on very large numbers
+and SymPy's \`isprime\` for numbers up to 10^20.
+For numbers larger than 10^20, it employs the Miller-Rabin primality test.
+If the number is identified as a Mersenne number (of the form 2^p - 1),
+the Lucas-Lehmer test is used for a definitive primality result.
+You can input mathematical expressions (e.g., 2**89-1, 15!-1).
 `,
         loading: "Loading Python environment...",
         labelNumber: "Enter the number:",
-        labelBase: "Enter the basis a:",
+        labelBase: "Enter Miller-Rabin iterations (e.g., 5-10, optional):",
         buttonCheck: "Check Prime"
       },
       sk: {
         heading: "Test Prvočísel",
-        instructions: `Tento program používa klasický algoritmus (pre čísla < 10^20) a vylepšenú metódu
-na hľadanie prvočísel pomocou malého Fermatovho testu.
-Keď výsledok vyjde: prvočíslo alebo pseudoprvočíslo, ide o pravdepodobnostný výsledok,
-pseudoprvočísla sú nepravé prvočísla.
-Pre lepšie výsledky sa otestuje viac základov (napr. 2, 3, 5, 7, 11, 13).
-Môžete tiež zadať matematické výrazy (napr. 2**13-1, 15!-1).
+        instructions: `Tento program používa klasický algoritmus na počiatočné kontroly veľmi veľkých čísel
+a SymPy \`isprime\` pre čísla do 10^20.
+Pre čísla väčšie ako 10^20 používa Miller-Rabinov test prvočíselnosti.
+Ak je číslo identifikované ako Mersennovo číslo (tvaru 2^p - 1),
+použije sa Lucas-Lehmerov test pre definitívny výsledok prvočíselnosti.
+Môžete zadať matematické výrazy (napr. 2**89-1, 15!-1).
 `,
         loading: "Načítavam Python prostredie...",
         labelNumber: "Zadajte číslo:",
-        labelBase: "Zadajte základ a:",
+        labelBase: "Zadajte počet Miller-Rabin iterácií (napr. 5-10, voliteľné):",
         buttonCheck: "Overiť prvočíselnosť"
       }
     };
@@ -166,124 +226,272 @@ Môžete tiež zadať matematické výrazy (napr. 2**13-1, 15!-1).
     }
 
     async function main() {
-      // Predvolený jazyk (angličtina)
+      // Default language (English)
       let currentLang = "en";
       setLanguage(currentLang);
 
-      // Reakcia na zmenu jazyka v selecte
+      // Handle language change
       const langSelect = document.getElementById("languageSelect");
       langSelect.addEventListener("change", () => {
         currentLang = langSelect.value;
         setLanguage(currentLang);
+        // Update loading status text if Pyodide is still loading
+        if (!document.getElementById("pyodide-spinner").classList.contains("hidden")) {
+            document.getElementById("pyodide-status").textContent = translations[currentLang].loading;
+        }
       });
 
-      // Načítanie Pyodide
+      // Load Pyodide
+      document.getElementById("pyodide-status").textContent = translations[currentLang].loading;
       let pyodide = await loadPyodide();
-      // Načítanie balíčkov (sympy)
+      // Load packages (sympy). 'random' is part of Python standard library.
       await pyodide.loadPackage(["sympy"]);
 
-      // Skryť spinner a status, zobraziť app
+      // Hide spinner and status, show app
       document.getElementById("pyodide-spinner").classList.add("hidden");
       document.getElementById("pyodide-status").classList.add("hidden");
       document.getElementById("app").classList.remove("hidden");
 
-      // Python kód (bez gmpy2 a multiprocessing)
+      // Python code with Miller-Rabin and Lucas-Lehmer
       const pythonCode = `
 import sympy
 import math
+import random # Added for Miller-Rabin
 
-big_num = 10**20
-basic_field = [2, 3, 5, 7, 11, 13]
-big_num2 = 10**12
+big_num = 10**20  # Threshold for using sympy.isprime vs. probabilistic tests
+basic_field = [2, 3, 5, 7, 11, 13] # Small primes for quick trial division
+big_num2 = 10**12 # Limit for trial division in classical_filter for very large N
 
 def classical_filter(n):
+    """
+    Performs trial division by small primes and then by 6k ± 1 up to a limit.
+    This is used for numbers n >= big_num before Miller-Rabin.
+    """
     for divisor in basic_field:
-        if n % divisor == 0 and n != divisor:
-            return f"Number is composite, divisible by {divisor}"
+        if n % divisor == 0 and n != divisor: # n != divisor handles case where n is one of basic_field primes
+            return f"Composite, divisible by {divisor}"
+    
+    # For numbers n >= big_num, the trial division limit is sqrt(big_num2)
+    # sympy.isprime is more comprehensive for n < big_num.
+    # This filter's main role is a quick check for large N.
+    # If n is smaller than big_num2 but larger than big_num (unlikely scenario based on limits),
+    # then sqrt(n) would be the ideal limit, but this function is typically called for n >> big_num2.
+    limit = round(math.sqrt(min(n, big_num2))) + 1 # Dynamic limit is better. Let's use min(n, big_num2)
+                                                # Original had fixed sqrt(big_num2)
+
     k = 1
-    end = round(math.sqrt(big_num2)) + 1
     while True:
         divisor1 = 6 * k - 1
         divisor2 = 6 * k + 1
-        if divisor1 > end:
+        
+        # If divisor1 itself exceeds the limit, no further checks needed
+        if divisor1 > limit:
             break
+        
         if n % divisor1 == 0 and n != divisor1:
-            return f"Number is composite, divisible by {divisor1}"
-        if n % divisor2 == 0 and n != divisor2:
-            return f"Number is composite, divisible by {divisor2}"
+            return f"Composite, divisible by {divisor1}"
+        
+        # Check divisor2 only if it's within the limit
+        if divisor2 <= limit and n % divisor2 == 0 and n != divisor2:
+            return f"Composite, divisible by {divisor2}"
+        
+        # Optimization: if divisor1^2 > n, and n has not been found divisible yet,
+        # and n > limit (meaning limit was not sqrt(n)), then n must be prime.
+        # This optimization is more relevant if limit is sqrt(n).
+        # With limit = sqrt(min(n, big_num2)), if n > big_num2, limit is sqrt(big_num2).
+        # If divisor1 * divisor1 > n, then n is prime if no factors found so far.
+        # This condition is tricky with the current 'limit' logic for very large n.
+        # For simplicity, we rely on the loop termination via 'divisor1 > limit'.
+
         k += 1
     return None
 
-def fermat_test(n, a):
-    remainder = pow(a, n-1, n)
-    if remainder == 1:
-        return (a, True)
-    else:
-        return (a, False)
+# Miller-Rabin primality test
+def miller_rabin_test(n, k_iterations=10):
+    """
+    Probabilistic primality test.
+    k_iterations: Number of bases to test. Higher k = higher accuracy.
+    Returns True if n is probably prime, False if n is definitely composite.
+    """
+    if n < 2: return False
+    if n == 2 or n == 3: return True # 2 and 3 are prime
+    if n % 2 == 0: return False # Even numbers (except 2) are composite
 
-def run_fermat_tests(n, bases):
-    results = []
-    for base in bases:
-        results.append(fermat_test(n, base))
-    return results
+    # Write n-1 as 2^s * d, where d is odd
+    s = 0
+    d = n - 1
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+    
+    for _ in range(k_iterations):
+        # Pick a random integer 'a' in the range [2, n-2]
+        # For n=3, range is [2,1], so special handling or ensure n > 3 for randint(2, n-2)
+        if n <= 3: # This case should be caught by initial checks
+             a = 2 # For n=3, a=2. (3-1)=2. 2^2 mod 3 = 1. Correct.
+        else:
+             a = random.randint(2, n - 2)
 
-def check_prime(n, base_input):
+        x = pow(a, d, n) # Compute a^d mod n
+        
+        if x == 1 or x == n - 1: # If x is 1 or n-1, n might be prime, continue to next iteration
+            continue
+        
+        # Witness loop: check for x = n-1 for s-1 times
+        # (squaring x: x = x^2 mod n each time)
+        composite_witness_found = True # Assume composite unless proven otherwise in this inner loop
+        for _r in range(s - 1): # Loop s-1 times
+            x = pow(x, 2, n)
+            if x == n - 1: # If x becomes n-1, n might be prime with this 'a'. Break inner loop.
+                composite_witness_found = False
+                break
+        
+        if composite_witness_found: # If inner loop completed and x was never n-1
+            return False # n is definitely composite
+            
+    return True # n is probably prime after k_iterations
+
+# Lucas-Lehmer test for Mersenne numbers M_p = 2^p - 1
+def lucas_lehmer_test(p_val):
+    """
+    Deterministic primality test for Mersenne numbers M_p = 2^p - 1.
+    p_val: The exponent p.
+    Returns True if M_p is prime, False otherwise.
+    """
+    # M_p is prime only if p is prime. This check should be done before calling.
+    # Smallest Mersenne prime is M_2 = 3 (p=2).
+    if p_val == 2: return True # M_2 = 3 is prime
+
+    m_p = (1 << p_val) - 1 # Calculate M_p = 2^p - 1 efficiently
+    
+    s = 4 # Initial term of the Lucas-Lehmer sequence
+    # The sequence is s_0 = 4, s_i = (s_{i-1}^2 - 2) mod M_p.
+    # M_p is prime if and only if s_{p-2} = 0.
+    # Loop runs p-2 times (from i=0 to p-3, generating s_1 to s_{p-2}).
+    for _ in range(p_val - 2):
+        s_sq = pow(s, 2, m_p) # s^2 mod M_p
+        s = (s_sq - 2 + m_p) % m_p # (s^2 - 2) mod M_p, ensuring positive result before final mod
+                                   # Python's % on negative numbers can be tricky if m_p is not careful.
+                                   # (a % n + n) % n ensures positive result.
+                                   # pow(s,2,m_p) handles large s. (s*s -2) % m_p is okay.
+    return s == 0
+
+def check_prime(n_expr_str, iterations_str_input):
+    """
+    Main primality checking function.
+    n_expr_str: The number or mathematical expression as a string from user input.
+    iterations_str_input: String for number of Miller-Rabin iterations (optional).
+    """
+    try:
+        # Evaluate the expression using sympy.sympify and then convert to Python int
+        # This handles large numbers and expressions like "2**100 - 1"
+        n = int(sympy.sympify(n_expr_str))
+    except Exception as e:
+        return f"Invalid number expression: '{n_expr_str}'. Error: {str(e)}"
+
+    # Parse Miller-Rabin iterations
+    k_mr_iterations = 10 # Default value
+    if iterations_str_input and iterations_str_input.strip():
+        try:
+            parsed_k = int(iterations_str_input)
+            if parsed_k > 0 and parsed_k < 100: # Sensible limits for iterations
+                k_mr_iterations = parsed_k
+            elif parsed_k >= 100:
+                 k_mr_iterations = 50 # Cap iterations if too high
+        except ValueError:
+            pass # Invalid iteration string, use default
+
+    if n < 0: return f"The input '{n_expr_str}' evaluates to a negative number. Primality is not defined for negative numbers."
+    if n < 2: return f"The input '{n_expr_str}' evaluates to a number less than 2. Not prime."
+    if n == 2 or n == 3: return f"The number from input '{n_expr_str}' is prime."
+    if n % 2 == 0: return f"The number from input '{n_expr_str}' is composite (divisible by 2)."
+    # For M_p test, p must be prime. (n+1).bit_length()-1 gives p.
+    # (n+1) must be a power of 2 means (n+1) & n == 0.
+    # Example: n=7 (M_3). n+1=8. 8 & 7 = 0. p = 8.bit_length()-1 = 4-1=3. sympy.isprime(3) is True.
+    # Example: n=31 (M_5). n+1=32. 32 & 31 = 0. p = 32.bit_length()-1 = 6-1=5. sympy.isprime(5) is True.
+    # Example: n=2047 = 2^11-1. n+1=2048. p=11. sympy.isprime(11) is True. LL(11) should be False. (23*89)
+    
+    is_mersenne_candidate = ((n + 1) & n) == 0 and n > 1 # n+1 is power of 2
+    if is_mersenne_candidate:
+        p_exponent = (n + 1).bit_length() - 1
+        if p_exponent >= 2: # Smallest Mersenne prime M_2=3 (p=2)
+            # For M_p to be prime, p itself must be prime.
+            # This check is fast as p is much smaller than M_p.
+            if not sympy.isprime(p_exponent):
+                return (f"The number (Mersenne form 2^{p_exponent}-1 from input '{n_expr_str}') "
+                        f"is composite because exponent p={p_exponent} is not prime.")
+            else:
+                # p is prime, apply Lucas-Lehmer test
+                if lucas_lehmer_test(p_exponent):
+                    return (f"The number (Mersenne M_{p_exponent} from input '{n_expr_str}') "
+                            f"is prime (by Lucas-Lehmer test).")
+                else:
+                    return (f"The number (Mersenne M_{p_exponent} from input '{n_expr_str}') "
+                            f"is composite (by Lucas-Lehmer test).")
+
+    # For numbers n < big_num (e.g., 10^20), use sympy.isprime for definitive results.
     if n < big_num:
         if sympy.isprime(n):
-            return "Number is prime."
+            return f"The number from input '{n_expr_str}' is prime (verified by SymPy)."
         else:
-            return "Number is composite."
-    filter_result = classical_filter(n)
-    if filter_result is not None:
-        return filter_result
-    default_bases = [2, 3, 5, 7, 11, 13]
-    bases = sorted(set([base_input] + default_bases))
-    results = run_fermat_tests(n, bases)
-    composite_found = False
-    results_text = ""
-    for base, passed in results:
-        if passed:
-            results_text += f"Base {base}: Pass\\n"
-        else:
-            results_text += f"Base {base}: Fail\\n"
-            composite_found = True
-    if composite_found:
-        final_text = "Number is composite based on Fermat test(s):\\n" + results_text
+            # If composite and small enough, try to find a factor quickly with classical_filter.
+            # classical_filter is designed for larger numbers but can still find small factors.
+            # However, sympy.factorint(n) would be more direct if we want factors for n < big_num.
+            # For now, just state it's composite as per SymPy.
+            # We can enhance classical_filter for this range or use sympy.factorint if desired.
+            # Let's attempt to use classical_filter to find a small factor if possible.
+            filter_msg_small_n = classical_filter(n) # classical_filter checks basic_field + 6k±1
+            if filter_msg_small_n:
+                 return f"The number from input '{n_expr_str}' is {filter_msg_small_n.lower()} (verified by SymPy)."
+
+            return f"The number from input '{n_expr_str}' is composite (verified by SymPy)."
+
+    # For numbers n >= big_num:
+    # 1. Attempt classical_filter as a quick check for small factors.
+    filter_msg_large_n = classical_filter(n)
+    if filter_msg_large_n: # Returns "Composite, divisible by X"
+        return f"The number from input '{n_expr_str}' is {filter_msg_large_n.lower()}."
+
+    # 2. If no small factors found, use Miller-Rabin.
+    if miller_rabin_test(n, k_mr_iterations):
+        return (f"The number from input '{n_expr_str}' is likely prime "
+                f"(passed {k_mr_iterations} Miller-Rabin rounds).")
     else:
-        final_text = "Number is prime or pseudoprime based on Fermat tests:\\n" + results_text
-    return final_text
+        # If Miller-Rabin returns False, it's definitely composite.
+        # It doesn't provide a factor, though.
+        return (f"The number from input '{n_expr_str}' is composite "
+                f"(identified by Miller-Rabin test, {k_mr_iterations} rounds).")
 `;
-      // Definovanie funkcií v Pyodide
+      // Make Python functions available in Pyodide's global scope
       await pyodide.runPythonAsync(pythonCode);
 
-      // Event handler pre tlačidlo "Check Prime"
+      // Event handler for the "Check Prime" button
       document.getElementById("checkPrime").addEventListener("click", async () => {
-        const nStr = document.getElementById("numberInput").value.trim();
-        let n;
-        try {
-          // Hodnota nStr sa vyhodnotí cez sympy v Pythone
-          pyodide.globals.set("n_expr", nStr);
-          n = pyodide.runPython(`int(sympy.sympify(n_expr))`);
-        } catch (e) {
-          document.getElementById("result").textContent = "Invalid number expression.";
-          return;
-        }
-        if (n === 0) {
-          document.getElementById("result").textContent = "Exiting...";
-          return;
-        }
-        const baseStr = document.getElementById("baseInput").value.trim();
-        let baseInput = parseInt(baseStr);
-        if (isNaN(baseInput)) {
-          document.getElementById("result").textContent = "Invalid base input.";
-          return;
-        }
-        // Indikácia, že prebieha výpočet
-        document.getElementById("result").textContent = "Running Fermat tests, please wait...";
+        const numberExprStr = document.getElementById("numberInput").value.trim();
+        const iterationsStr = document.getElementById("baseInput").value.trim(); // Now for Miller-Rabin iterations
 
-        // Zavolanie check_prime v Pythone
-        const result = await pyodide.runPythonAsync(`check_prime(${n}, ${baseInput})`);
-        document.getElementById("result").textContent = result;
+        if (!numberExprStr) {
+            document.getElementById("result").textContent = "Please enter a number or expression.";
+            return;
+        }
+        
+        // Indicate processing started
+        document.getElementById("result").textContent = "Checking primality, please wait...";
+
+        // Pass the string inputs directly to the Python function
+        // Pyodide will handle them. Python function 'check_prime' now expects string inputs.
+        // Using pyodide.globals.set to avoid issues with very large numbers in template literals
+        pyodide.globals.set("py_n_expr_str", numberExprStr);
+        pyodide.globals.set("py_iterations_str", iterationsStr);
+        
+        try {
+            const result = await pyodide.runPythonAsync(`check_prime(py_n_expr_str, py_iterations_str)`);
+            document.getElementById("result").textContent = result;
+        } catch (e) {
+            // Catch errors from Python execution (e.g., syntax errors in expression if not caught by sympify)
+            console.error("Error during Python execution:", e);
+            document.getElementById("result").textContent = "Error during primality check: " + e.message;
+        }
       });
     }
 
