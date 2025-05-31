@@ -4,13 +4,105 @@ import sympy
 import math
 import multiprocessing
 import gmpy2
-from gmpy2 import mpz, powmod
+from gmpy2 import mpz, powmod, log2, is_prime
+from concurrent.futures import ProcessPoolExecutor
+import random
+import time
+import concurrent.futures
+from tkinter import ttk
+
+# List of known exponents p for Mersenne primes (M_p = 2^p - 1)
+# Source: https://www.mersenne.org/primes/ (GIMPS) - as of October 2024
+KNOWN_MERSENNE_EXPONENTS = {
+    2, 3, 5, 7, 13, 17, 19, 31, 61, 89, 107, 127, 521, 607, 1279, 2203, 2281, 3217, 4253, 4423,
+    9689, 9941, 11213, 19937, 21701, 23209, 44497, 86243, 110503, 132049, 216091, 756839,
+    859433, 1257787, 1398269, 2976221, 3021377, 6972593, 13466917, 20996011, 24036583,
+    25964951, 30402457, 32582657, 37156667, 42643801, 43112609, 57885161, 74207281,
+    77232917, 82589933, 136279841
+}
+
+PROGRESS_BAR_MAX = 100 # Define a global variable for the progress bar maximum
 
 # -------------------  LOGIC  -------------------
+
+# New function to check for a direct text expression of a Mersenne prime
+def check_direct_mersenne_expression(input_str_raw, start_time_check, result_label_widget, root_widget, progress_bar_widget):
+    cleaned_input_str = input_str_raw.replace(" ", "").lower() # Remove spaces and convert to lowercase
+    P_EXPONENT_THRESHOLD_FOR_DISPLAY = 127 # Threshold for p above which we don't print the full M_p value
+
+    for p_exponent in KNOWN_MERSENNE_EXPONENTS:
+        expected_forms = [
+            f"2**{p_exponent}-1",
+            f"pow(2,{p_exponent})-1"
+        ]
+        if cleaned_input_str in expected_forms:
+            end_time_check = time.time()
+            if p_exponent > P_EXPONENT_THRESHOLD_FOR_DISPLAY:
+                result_text_direct = f"Input expression \"{input_str_raw}\" corresponds to M_{p_exponent}.\nThis is a known Mersenne Prime."
+            else:
+                # Expression matches and p is small enough, calculate the value for display
+                try:
+                    mersenne_value_mpz = mpz(2)**p_exponent - 1
+                    result_text_direct = f"Input expression \"{input_str_raw}\" corresponds to M_{p_exponent} = {mersenne_value_mpz}.\nThis is a known Mersenne Prime."
+                except OverflowError: # Shouldn't happen with mpz, but just in case
+                    # If calculation fails even for smaller p (unlikely), fallback to no value display
+                    result_text_direct = f"Input expression \"{input_str_raw}\" corresponds to M_{p_exponent}.\nThis is a known Mersenne Prime (value calculation issue)."
+            
+            result_label_widget.config(text=f"{result_text_direct}\n(Verified by direct expression match in {end_time_check - start_time_check:.4f} seconds)")
+            if progress_bar_widget:
+                progress_bar_widget['value'] = PROGRESS_BAR_MAX
+            root_widget.update_idletasks()
+            return True
+    return False
 
 big_num = 10**20
 basic_field = [2, 3, 5, 7, 11, 13]
 big_num2 = 10**12
+
+def check_known_mersenne_primes(n_mpz, start_time_check, result_label_widget, root_widget, progress_bar_widget):
+    """
+    Checks if the given number n_mpz is a known Mersenne prime
+    by direct comparison with M_p = 2^p - 1 for known exponents p.
+    If yes, updates the GUI and returns True. Otherwise returns False.
+    n_mpz is expected to be gmpy2.mpz.
+    result_label_widget is the widget to display the result.
+    root_widget is the main window for update_idletasks.
+    progress_bar_widget is the progress bar widget.
+    """
+    if n_mpz <= 7: # For small numbers it doesn't make sense, they are already covered elsewhere
+        return False
+
+    # For optimization, KNOWN_MERSENNE_EXPONENTS could be converted to a sorted list
+    # but for the given count (~50) it might not be necessary, and a set offers fast `in` checking.
+    # Here we iterate directly through the set.
+
+    for p_exponent in KNOWN_MERSENNE_EXPONENTS: 
+        # Calculate 2^p (must be mpz to prevent overflow for large p)
+        # We use gmpy2.powmod for exponentiation, even if modulo is not needed, or directly the ** operator with mpz
+        try:
+            power_of_2 = mpz(2)**p_exponent
+            mersenne_candidate = power_of_2 - 1
+        except OverflowError: # Theoretically, this shouldn't happen with mpz, but just in case
+            # print(f"Overflow calculating 2^{p_exponent} for Mersenne test.")
+            continue # Try the next exponent
+
+        if n_mpz == mersenne_candidate:
+            end_time_check = time.time()
+            result_label_widget.config(text=f"{n_mpz} is a known Mersenne Prime (M{p_exponent}).\n(Verified in {end_time_check - start_time_check:.4f} seconds)")
+            if progress_bar_widget: # If progress_bar is available
+                progress_bar_widget['value'] = PROGRESS_BAR_MAX
+            root_widget.update_idletasks()
+            return True
+        
+        # Small optimization: if n_mpz is significantly smaller than the current candidate,
+        # and the exponents were sorted, we could break. 
+        # Since KNOWN_MERSENNE_EXPONENTS is a set, we don't have a guaranteed iteration order.
+        # However, we could compare the bit length; if it's much smaller, a match is unlikely.
+        # For example, if n_mpz.bit_length() < p_exponent - C (where C is a small constant), we could consider a break,
+        # but this would require a sorted list of exponents for reliability.
+        # For simplicity, we leave it as is for now.
+
+    return False
 
 def classical_filter(n):
     """
@@ -36,50 +128,121 @@ def classical_filter(n):
         k += 1
     return None
 
-def fermat_test(args):
+def miller_rabin_test(args):
     """
-    Performs the Fermat test for a given base 'a':
-      - Computes powmod(a, n-1, n) using gmpy2.
-      - If the result equals 1, the test 'passes' for that base.
+    Performs the Miller-Rabin primality test for a given number n and base a.
+    Returns (a, True) if n is a strong probable prime to base a.
+    Returns (a, False) if n is definitely composite.
     """
     n, a = args
     n_mpz = mpz(n)
     a_mpz = mpz(a)
-    r = powmod(a_mpz, n_mpz - 1, n_mpz)
-    if r == 1:
-        return (a, True)
-    else:
-        return (a, False)
 
-def run_fermat_tests(n, bases):
+    # Base cases
+    if n_mpz < 2: return (a, False)
+    if n_mpz == 2: return (a, True) # 2 is prime
+    if n_mpz % 2 == 0: return (a, False) # Even numbers > 2 are composite
+
+    # Find s and d such that n-1 = 2^s * d, where d is odd
+    d = n_mpz - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+
+    # 1. Calculate x = a^d mod n
+    x = powmod(a_mpz, d, n_mpz)
+
+    # If x == 1 or x == n-1, the test passed
+    if x == 1 or x == n_mpz - 1:
+        return (a, True)
+
+    # 2. Repeat squaring s-1 times
+    for _ in range(s - 1): 
+        x = powmod(x, 2, n_mpz) 
+        if x == n_mpz - 1:
+            return (a, True) 
+        if x == 1:
+            return (a, False) 
+
+    return (a, False)
+
+def run_primality_tests(n, bases, progress_bar_widget, root_widget, start_percentage):
     """
-    Runs the Fermat test in parallel for multiple bases.
+    Runs the Miller-Rabin primality test in parallel for multiple bases.
+    Updates a progress bar during execution.
     Returns a list of (base, pass/fail) tuples.
     """
     pool = multiprocessing.Pool(processes=len(bases))
     args = [(n, a) for a in bases]
-    results = pool.map(fermat_test, args)
-    pool.close()
-    pool.join()
-    return results
+    
+    results_from_pool = []
+    num_bases = len(bases)
+    bases_processed = 0
+
+    # We use executor.map to preserve order if needed,
+    # or as_completed to update the progress bar immediately after a task is finished.
+    # For the progress bar, as_completed is better.
+
+    # The total range for the progress bar that this function should cover
+    progress_range = PROGRESS_BAR_MAX - start_percentage
+
+    # ProcessPoolExecutor is more suitable for CPU-bound tasks and integrates better with as_completed
+    with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+        future_to_base = {executor.submit(miller_rabin_test, arg): arg[1] for arg in args}
+        
+        for future in concurrent.futures.as_completed(future_to_base):
+            base = future_to_base[future]
+            try:
+                results_from_pool.append(future.result()) # Store (base, passed)
+            except Exception as exc:
+                # print(f"Base {base} generated an exception: {exc}")
+                results_from_pool.append((base, False)) # In case of an error, assume the test failed
+            
+            bases_processed += 1
+            current_progress = start_percentage + int((bases_processed / num_bases) * progress_range)
+            progress_bar_widget['value'] = current_progress
+            root_widget.update_idletasks()
+
+    pool.close() # This should no longer be here if we are using ProcessPoolExecutor
+    pool.join()  # This should no longer be here
+
+    # Sort results by base for consistency, if needed
+    # results_from_pool.sort(key=lambda x: x[0]) 
+    # If concurrent.futures.as_completed does not return in order, and order is important, we would have to address that.
+    # For this case, we'll leave them as they arrived for now.
+    # If we want an exact order, we should use executor.map and assign the results correctly.
+    # For simplicity, we'll return them as they arrived for now, and change to map if needed.
+    # Alternatively, we can sort at the end:
+    return sorted(results_from_pool, key=lambda x: x[0])
 
 # -------------------  GUI FUNCTIONS  -------------------
 
-def get_input():
+# Helper function to parse input (original logic from get_input, but takes a string)
+def parse_input_to_int(input_str):
+    """
+    Parses an input string (number or mathematical expression) using sympy.
+    Returns an integer or None on error (and shows a messagebox).
+    """
+    try:
+        number_expr = sympy.sympify(input_str)
+        if not number_expr.is_number:
+            # If sympify returns a symbolic expression (e.g., 'x'), not a number
+            messagebox.showerror("Input Error", f"Expression \"{input_str}\" did not evaluate to a number.")
+            return None
+        number_int = int(number_expr) # Conversion to Python int
+    except Exception as e:
+        messagebox.showerror("Input Error", f"Could not parse \"{input_str}\". Please insert a valid integer or mathematical expression.\nDetails: {e}")
+        return None
+    return number_int
+
+def get_input(): # This function remains for backward compatibility if called elsewhere, but check_prime no longer uses it directly
     """
     Reads a number (or mathematical expression) from the text field
     and attempts to parse it with sympy. Returns an integer or None on error.
     """
     input_string = text_number.get("1.0", tk.END).strip()
-    try:
-        number_expr = sympy.sympify(input_string)
-        number_int = int(number_expr) if number_expr.is_number else None
-        if number_int is None:
-            raise ValueError
-    except Exception:
-        messagebox.showerror("Input Error", "Please insert a valid integer or mathematical expression")
-        return None
-    return number_int
+    return parse_input_to_int(input_string)
 
 def get_a():
     """
@@ -99,27 +262,102 @@ def check_prime():
     Main function triggered by the 'Check Prime' button.
     Obtains the number n, decides on the testing method, and displays the result.
     """
-    n = get_input()
-    if n is None:
+    input_string = text_number.get("1.0", tk.END).strip()
+
+    # Very first checks, even before time measurement or anything else
+    if not input_string: # Check for an empty string
         return
-    if n == 0:
+    if input_string == "0": # Special command to terminate the program (as raw text)
         root.quit()
         return
 
-    # If the number is less than 10^20, use sympy.isprime (fast check)
-    if n < big_num:
-        if sympy.isprime(n):
-            result_text = "Number is prime."
-        else:
-            result_text = "Number is composite."
-        result_label.config(text=result_text)
+    start_time_overall = time.time() # Start time of the overall testing
+
+    # 1. FIRST TESTING LOGIC: Direct text expression of a known Mersenne prime
+    if check_direct_mersenne_expression(input_string, start_time_overall, result_label, root, progress_bar):
+        return # If it's an M_p expression, we finish
+
+    # 2. Processing input to a number (if it wasn't a direct Mersenne expression)
+    # We use the parse_input_to_int helper function
+    n_input = parse_input_to_int(input_string)
+
+    if n_input is None: # The error was displayed in parse_input_to_int
+        return
+    
+    # If we got here, it means the input was processed into a number
+    # and it wasn't a direct M_p expression, nor an empty string, nor "0" to terminate.
+    # Note: The check for n_input == 0 (as a value) was already implicitly covered, 
+    # if parse_input_to_int returned 0 and input_string was not "0" previously.
+    # If we wanted a special action for the numerical value 0 (e.g., other than termination),
+    # we could add it here. For consistency, if "0" terminates, then an expression like "1-1" should too.
+    # Therefore, if input_string == "0" is handled above, n_input == 0 here no longer has a special meaning for termination.
+
+    # Initialize progress bar (if we got here, the expression wasn't M_p)
+    # and the number was successfully processed
+    progress_bar['value'] = 0 
+    root.update_idletasks()
+
+    # Attempt conversion to mpz right at the start of value processing
+    try:
+        n_mpz_val = mpz(n_input) # n_input is already a Python int from parse_input_to_int
+    except Exception as e: 
+        messagebox.showerror("Input Error", f"Could not convert input to a large number: {e}")
+        result_label.config(text=f"Error: Could not process input {n_input}")
         return
 
-    # For large numbers, first apply the classical filter
-    filter_result = classical_filter(n)
-    if filter_result is not None:
-        result_label.config(text=filter_result)
+    # Immediate results for very small numbers
+    if n_mpz_val <= 1:
+        result_label.config(text=f"{n_mpz_val} is not prime (by definition).")
+        progress_bar['value'] = PROGRESS_BAR_MAX # Finished
+        root.update_idletasks()
         return
+    if n_mpz_val == 2 or n_mpz_val == 3 or n_mpz_val == 5 or n_mpz_val == 7:
+        end_time_overall = time.time()
+        result_label.config(text=f"{n_mpz_val} is prime.\n(Verified in {end_time_overall - start_time_overall:.4f} seconds)")
+        progress_bar['value'] = PROGRESS_BAR_MAX # Finished
+        root.update_idletasks()
+        return
+
+    # Check for known Mersenne primes (numeric value)
+    # This function updates the progress bar to MAX if it finds a Mersenne prime
+    if check_known_mersenne_primes(n_mpz_val, start_time_overall, result_label, root, progress_bar):
+        # result_label and progress_bar are already updated in the helper function
+        return
+    
+    progress_bar['value'] = 10 # Initial step after basic checks and Mersenne test
+    root.update_idletasks()
+
+    # If the number is less than 10^20, use sympy.isprime (quick check)
+    # We use the original n_input value for comparison with big_num, as big_num is an int
+    if n_input < big_num:
+        # For sympy.isprime, we can use n_input if it's an int, or n_mpz_val
+        # sympy should handle both types, but we can use n_input to be sure
+        is_sympy_prime = sympy.isprime(n_input) 
+        end_time_overall = time.time()
+        if is_sympy_prime:
+            result_text = f"{n_input} is prime (verified by SymPy)."
+        else:
+            result_text = f"{n_input} is composite (verified by SymPy)."
+        result_label.config(text=f"{result_text}\n(Tested in {end_time_overall - start_time_overall:.4f} seconds)")
+        progress_bar['value'] = PROGRESS_BAR_MAX # Finished by SymPy test
+        root.update_idletasks()
+        return
+
+    progress_bar['value'] = 20 # Before classical filter
+    root.update_idletasks()
+
+    # For large numbers, first apply the classical filter
+    # We use n_mpz_val for classical_filter, as it expects mpz
+    filter_result = classical_filter(n_mpz_val)
+    if filter_result is not None:
+        end_time_overall = time.time()
+        result_label.config(text=f"{filter_result}\n(Filtered in {end_time_overall - start_time_overall:.4f} seconds)")
+        progress_bar['value'] = PROGRESS_BAR_MAX # Finished by filter
+        root.update_idletasks()
+        return
+
+    progress_bar['value'] = 40 # After classical filter, before Miller-Rabin
+    root.update_idletasks()
 
     # Get the user-specified base and construct the list of bases
     base_input = get_a()
@@ -129,16 +367,16 @@ def check_prime():
     bases = sorted(set([base_input] + default_bases))
 
     # Inform the user that the tests are running
-    result_label.config(text="Running Fermat tests, please wait...")
+    result_label.config(text="Running Miller-Rabin tests, please wait...")
     root.update_idletasks()
 
-    # Run the Fermat tests in parallel
-    results = run_fermat_tests(n, bases)
+    # Run the Miller-Rabin tests in parallel
+    results = run_primality_tests(n_mpz_val, bases, progress_bar, root, 50)
 
-    # Evaluate results
+    # Evaluation of results from Miller-Rabin tests
     composite_found = False
     results_text = ""
-    for base, passed in results:
+    for base, passed in results: # results is now a list of (base, passed) pairs
         if passed:
             results_text += f"Base {base}: Pass\n"
         else:
@@ -146,10 +384,15 @@ def check_prime():
             composite_found = True
 
     if composite_found:
-        final_text = "Number is composite based on Fermat test(s):\n" + results_text
+        final_text = "Number is composite based on Miller-Rabin test(s):\n" + results_text
     else:
-        final_text = "Number is prime or pseudoprime based on Fermat tests:\n" + results_text
+        final_text = "Number is likely prime (passed Miller-Rabin tests for all bases):\n" + results_text
+    
+    end_time_overall = time.time() # Total time at the end
+    final_text += f"\nTotal time: {end_time_overall - start_time_overall:.4f} seconds."
     result_label.config(text=final_text)
+    progress_bar['value'] = PROGRESS_BAR_MAX # Completely finished
+    root.update_idletasks()
 
 # -------------------  IMPROVED GUI DESIGN  -------------------
 
@@ -166,86 +409,143 @@ def center_window(window, width=700, height=700):
 # Create the main window
 root = tk.Tk()
 root.title("Prime Number Test")
-center_window(root, 700, 700)  # Set size and center
-root.configure(bg="#2E2E2E")
+center_window(root, 750, 780)  # Slightly enlarged window for more space
 
-# Fonts and colors
-title_font = ("Helvetica", 14, "bold")
-label_font = ("Helvetica", 11)
-button_font = ("Helvetica", 11, "bold")
+# --- Professional Look: Colors and Fonts ---
+BG_COLOR = "#2C3E50"         # Dark blue
+INPUT_BG_COLOR = "#34495E"   # Slightly lighter dark blue
+TEXT_COLOR = "#ECF0F1"       # Very light gray / almost white
+TITLE_TEXT_COLOR = "#FFFFFF"   # White
+BUTTON_BG_COLOR = "#E67E22"   # Orange
+BUTTON_FG_COLOR = "#FFFFFF"   # White
+BUTTON_ACTIVE_BG_COLOR = "#F39C12" # Lighter orange
+BORDER_COLOR = "#233140"      # Darker shade of blue for borders
+SCROLLBAR_BG_COLOR = "#34495E"
+
+root.configure(bg=BG_COLOR)
+
+# Fonts
+try:
+    # Attempt to use more modern fonts if available
+    TITLE_FONT = ("Segoe UI", 16, "bold")
+    LABELFRAME_TITLE_FONT = ("Segoe UI", 13, "bold") # New font for LabelFrame titles
+    LABEL_FONT = ("Segoe UI", 12)
+    INSTRUCTION_TEXT_FONT = ("Segoe UI", 10)      # Smaller font for instruction text
+    BUTTON_FONT = ("Segoe UI", 13, "bold")
+    RESULT_FONT = ("Segoe UI", 12)
+except tk.TclError:
+    # Fallback to Helvetica if preferred fonts are not available
+    TITLE_FONT = ("Helvetica", 14, "bold") 
+    LABELFRAME_TITLE_FONT = ("Helvetica", 12, "bold") # New font for LabelFrame titles
+    LABEL_FONT = ("Helvetica", 11)         
+    INSTRUCTION_TEXT_FONT = ("Helvetica", 9)       # Smaller font for instruction text
+    BUTTON_FONT = ("Helvetica", 12, "bold")
+    RESULT_FONT = ("Helvetica", 11)        
 
 # Label frame for instructions
 instructions_frame = tk.LabelFrame(
-    root, text="Instructions", bg="#2E2E2E", fg="white",
-    font=label_font, bd=2, relief="groove"
+    root, text="Instructions", bg=BG_COLOR, fg=TITLE_TEXT_COLOR,
+    font=LABELFRAME_TITLE_FONT, bd=2, relief="solid", borderwidth=1, highlightbackground=BORDER_COLOR # Used new font
 )
-instructions_frame.pack(fill="x", padx=15, pady=15)
+instructions_frame.pack(fill="x", padx=20, pady=(15,5)) # Slightly adjusted padding
 
 instruction_text = (
-    "This program employs a classical algorithm (for numbers < 10^20) and an improved method\n"
-    "for finding prime numbers using the small Fermat theorem.\n\n"
-    "When it yields the outcome: prime or pseudoprime, it reflects a probability result,\n"
-    "with pseudoprimes having a low likelihood.\n\n"
+    "This program uses sympy.isprime for numbers less than 10^20.\n"
+    "For larger numbers, it first applies a classical filter (trial division by small primes\n"
+    "and numbers of the form 6k±1). If the number passes this filter, the Miller-Rabin\n"
+    "primality test is then used with multiple bases.\n\n"
+    "A 'likely prime' result from the Miller-Rabin test indicates a very high probability\n"
+    "that the number is prime.\n\n"
     "Pseudoprimes are non-genuine primes. For enhanced results, several bases (e.g., 2, 3, 5, 7, 11, 13)\n"
     "will be tested concurrently using multiprocessing.\n\n"
     "Note: You can also input mathematical expressions. Example: 2**13-1, 15!-1\n"    
 )
 
 instructions_label = tk.Label(
-    instructions_frame, text=instruction_text, bg="#2E2E2E", fg="white",
-    font=label_font, justify="left", wraplength=650
+    instructions_frame, text=instruction_text, bg=BG_COLOR, fg=TEXT_COLOR,
+    font=INSTRUCTION_TEXT_FONT, justify="left", wraplength=680 # Used new smaller font
 )
-instructions_label.pack(padx=10, pady=10)
+instructions_label.pack(padx=15, pady=(5,10)) # Slightly adjusted padding
 
 # Frame for input fields
-input_frame = tk.Frame(root, bg="#2E2E2E")
-input_frame.pack(padx=15, pady=10, fill="x")
+input_frame = tk.Frame(root, bg=BG_COLOR)
+input_frame.pack(padx=20, pady=10, fill="x")
 
+# Input Number + Scrollbar
 tk.Label(
-    input_frame, text="Enter the number:", bg="#2E2E2E", fg="white",
-    font=label_font
-).grid(row=0, column=0, sticky="e", padx=5, pady=5)
+    input_frame, text="Enter the number (or expression):", bg=BG_COLOR, fg=TEXT_COLOR,
+    font=LABEL_FONT
+).grid(row=0, column=0, sticky="w", padx=5, pady=(5,0))
+
+# Frame for the text area and scrollbar
+text_area_frame = tk.Frame(input_frame, bg=INPUT_BG_COLOR, relief="solid", borderwidth=1, highlightthickness=1, highlightbackground=BORDER_COLOR)
+text_area_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=(0,10), sticky="ew")
 
 text_number = tk.Text(
-    input_frame, height=3, width=30, bg="#1C1C1C", fg="white",
-    insertbackground="white", font=label_font
+    text_area_frame, height=3, width=38, bg=INPUT_BG_COLOR, fg=TITLE_TEXT_COLOR,
+    insertbackground=TITLE_TEXT_COLOR, font=LABEL_FONT, relief="flat", borderwidth=0, highlightthickness=0
 )
-text_number.grid(row=0, column=1, padx=5, pady=5, sticky="w")
+text_number.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
+scrollbar_y = tk.Scrollbar(text_area_frame, command=text_number.yview, relief="flat", bg=SCROLLBAR_BG_COLOR, troughcolor=INPUT_BG_COLOR, activerelief="flat")
+scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+
+text_number.config(yscrollcommand=scrollbar_y.set)
+
+# Input Base 'a'
 tk.Label(
-    input_frame, text="Enter the basis a:", bg="#2E2E2E", fg="white",
-    font=label_font
-).grid(row=1, column=0, sticky="e", padx=5, pady=5)
+    input_frame, text="Test with base 'a':", bg=BG_COLOR, fg=TEXT_COLOR,
+    font=LABEL_FONT
+).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0)) # Align left
 
 entry_a = tk.Entry(
-    input_frame, width=10, bg="#1C1C1C", fg="white",
-    insertbackground="white", font=label_font
+    input_frame, width=15, bg=INPUT_BG_COLOR, fg=TITLE_TEXT_COLOR, # A bit wider
+    insertbackground=TITLE_TEXT_COLOR, font=LABEL_FONT, relief="solid", borderwidth=1, highlightthickness=1, highlightbackground=BORDER_COLOR
 )
 entry_a.insert(0, "2")
-entry_a.grid(row=1, column=1, padx=5, pady=5, sticky="w")
+entry_a.grid(row=3, column=0, padx=5, pady=(0,10), sticky="w")
+
+# Configure grid column weights for input_frame to make text_number and entry_a expandable if needed
+input_frame.grid_columnconfigure(0, weight=1)
+
 
 # Frame for the "Check Prime" button
-button_frame = tk.Frame(root, bg="#2E2E2E")
-button_frame.pack(pady=5)
+button_frame = tk.Frame(root, bg=BG_COLOR)
+button_frame.pack(pady=15)
 
 check_button = tk.Button(
-    button_frame, text="Check Prime", command=check_prime,
-    bg="#424242", fg="white", font=button_font
+    button_frame, text="Check Primality", command=check_prime,
+    bg=BUTTON_BG_COLOR, fg=BUTTON_FG_COLOR, font=BUTTON_FONT, 
+    relief="raised", bd=2, padx=20, pady=5, # Larger button
+    activebackground=BUTTON_ACTIVE_BG_COLOR, activeforeground=BUTTON_FG_COLOR
 )
 check_button.pack()
 
+# Frame for the Progress Bar
+progress_frame = tk.Frame(root, bg=BG_COLOR)
+progress_frame.pack(fill="x", padx=20, pady=(5, 5)) # Smaller padding around the progress bar
+
+progress_bar = ttk.Progressbar(
+    progress_frame, 
+    orient="horizontal", 
+    length=300, 
+    mode='determinate'
+    # maximum will be set later if needed, default is 100
+)
+progress_bar.pack(fill="x", expand=True, padx=5, pady=5)
+
 # Label frame for results
 result_frame = tk.LabelFrame(
-    root, text="Result", bg="#2E2E2E", fg="white",
-    font=label_font, bd=2, relief="groove"
+    root, text="Result", bg=BG_COLOR, fg=TITLE_TEXT_COLOR,
+    font=TITLE_FONT, bd=2, relief="solid", borderwidth=1, highlightbackground=BORDER_COLOR
 )
-result_frame.pack(fill="both", expand=True, padx=15, pady=15)
+result_frame.pack(fill="both", expand=True, padx=20, pady=(10,20)) # Larger padding
 
 result_label = tk.Label(
-    result_frame, text="", wraplength=650, justify="left",
-    bg="#2E2E2E", fg="white", font=label_font
+    result_frame, text="", wraplength=680, justify="left", # Adjusted wraplength
+    bg=BG_COLOR, fg=TEXT_COLOR, font=RESULT_FONT 
 )
-result_label.pack(padx=10, pady=10, fill="both", expand=True)
+result_label.pack(padx=15, pady=15, fill="both", expand=True)
 
 if __name__ == '__main__':
     root.mainloop()
