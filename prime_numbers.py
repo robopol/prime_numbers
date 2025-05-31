@@ -23,10 +23,14 @@ KNOWN_MERSENNE_EXPONENTS = {
 
 PROGRESS_BAR_MAX = 100 # Define a global variable for the progress bar maximum
 
+# Helper function to update the result_text_area (defined later, but declared here for clarity if needed or move definition up)
+# This will be defined near the GUI section later.
+# def update_result_text(new_text): pass 
+
 # -------------------  LOGIC  -------------------
 
 # New function to check for a direct text expression of a Mersenne prime
-def check_direct_mersenne_expression(input_str_raw, start_time_check, result_label_widget, root_widget, progress_bar_widget):
+def check_direct_mersenne_expression(input_str_raw, start_time_check, root_widget, progress_bar_widget):
     cleaned_input_str = input_str_raw.replace(" ", "").lower() # Remove spaces and convert to lowercase
     P_EXPONENT_THRESHOLD_FOR_DISPLAY = 127 # Threshold for p above which we don't print the full M_p value
 
@@ -38,17 +42,15 @@ def check_direct_mersenne_expression(input_str_raw, start_time_check, result_lab
         if cleaned_input_str in expected_forms:
             end_time_check = time.time()
             if p_exponent > P_EXPONENT_THRESHOLD_FOR_DISPLAY:
-                result_text_direct = f"Input expression \"{input_str_raw}\" corresponds to M_{p_exponent}.\nThis is a known Mersenne Prime."
+                result_text_direct = f"Input expression '{input_str_raw}' corresponds to M_{p_exponent}.\nThis is a known Mersenne Prime."
             else:
-                # Expression matches and p is small enough, calculate the value for display
                 try:
                     mersenne_value_mpz = mpz(2)**p_exponent - 1
-                    result_text_direct = f"Input expression \"{input_str_raw}\" corresponds to M_{p_exponent} = {mersenne_value_mpz}.\nThis is a known Mersenne Prime."
-                except OverflowError: # Shouldn't happen with mpz, but just in case
-                    # If calculation fails even for smaller p (unlikely), fallback to no value display
-                    result_text_direct = f"Input expression \"{input_str_raw}\" corresponds to M_{p_exponent}.\nThis is a known Mersenne Prime (value calculation issue)."
+                    result_text_direct = f"Input expression '{input_str_raw}' corresponds to M_{p_exponent} = {mersenne_value_mpz}.\nThis is a known Mersenne Prime."
+                except OverflowError:
+                    result_text_direct = f"Input expression '{input_str_raw}' corresponds to M_{p_exponent}.\nThis is a known Mersenne Prime (value calculation issue)."
             
-            result_label_widget.config(text=f"{result_text_direct}\n(Verified by direct expression match in {end_time_check - start_time_check:.4f} seconds)")
+            update_result_text(f"{result_text_direct}\n(Verified by direct expression match in {end_time_check - start_time_check:.4f} seconds)") # MODIFIED: Use helper
             if progress_bar_widget:
                 progress_bar_widget['value'] = PROGRESS_BAR_MAX
             root_widget.update_idletasks()
@@ -59,49 +61,32 @@ big_num = 10**20
 basic_field = [2, 3, 5, 7, 11, 13]
 big_num2 = 10**12
 
-def check_known_mersenne_primes(n_mpz, start_time_check, result_label_widget, root_widget, progress_bar_widget):
+def check_known_mersenne_primes(n_mpz, start_time_check, root_widget, progress_bar_widget):
     """
     Checks if the given number n_mpz is a known Mersenne prime
     by direct comparison with M_p = 2^p - 1 for known exponents p.
     If yes, updates the GUI and returns True. Otherwise returns False.
     n_mpz is expected to be gmpy2.mpz.
-    result_label_widget is the widget to display the result.
     root_widget is the main window for update_idletasks.
     progress_bar_widget is the progress bar widget.
     """
-    if n_mpz <= 7: # For small numbers it doesn't make sense, they are already covered elsewhere
+    if n_mpz <= 7: 
         return False
 
-    # For optimization, KNOWN_MERSENNE_EXPONENTS could be converted to a sorted list
-    # but for the given count (~50) it might not be necessary, and a set offers fast `in` checking.
-    # Here we iterate directly through the set.
-
     for p_exponent in KNOWN_MERSENNE_EXPONENTS: 
-        # Calculate 2^p (must be mpz to prevent overflow for large p)
-        # We use gmpy2.powmod for exponentiation, even if modulo is not needed, or directly the ** operator with mpz
         try:
             power_of_2 = mpz(2)**p_exponent
             mersenne_candidate = power_of_2 - 1
-        except OverflowError: # Theoretically, this shouldn't happen with mpz, but just in case
-            # print(f"Overflow calculating 2^{p_exponent} for Mersenne test.")
-            continue # Try the next exponent
+        except OverflowError: 
+            continue 
 
         if n_mpz == mersenne_candidate:
             end_time_check = time.time()
-            result_label_widget.config(text=f"{n_mpz} is a known Mersenne Prime (M{p_exponent}).\n(Verified in {end_time_check - start_time_check:.4f} seconds)")
-            if progress_bar_widget: # If progress_bar is available
+            update_result_text(f"{n_mpz} is a known Mersenne Prime (M{p_exponent}).\n(Verified in {end_time_check - start_time_check:.4f} seconds)") # MODIFIED: Use helper
+            if progress_bar_widget: 
                 progress_bar_widget['value'] = PROGRESS_BAR_MAX
             root_widget.update_idletasks()
             return True
-        
-        # Small optimization: if n_mpz is significantly smaller than the current candidate,
-        # and the exponents were sorted, we could break. 
-        # Since KNOWN_MERSENNE_EXPONENTS is a set, we don't have a guaranteed iteration order.
-        # However, we could compare the bit length; if it's much smaller, a match is unlikely.
-        # For example, if n_mpz.bit_length() < p_exponent - C (where C is a small constant), we could consider a break,
-        # but this would require a sorted list of exponents for reliability.
-        # For simplicity, we leave it as is for now.
-
     return False
 
 def classical_filter(n):
@@ -128,97 +113,87 @@ def classical_filter(n):
         k += 1
     return None
 
-def miller_rabin_test(args):
+def euler_test_single_base(args):
     """
-    Performs the Miller-Rabin primality test for a given number n and base a.
-    Returns (a, True) if n is a strong probable prime to base a.
-    Returns (a, False) if n is definitely composite.
+    Performs an Euler-based primality test for a given number n and base a.
+    Checks if a^((n-1)/2) % n is 1 or n-1 (Euler's criterion).
+    Returns (base, True) if the condition holds, (base, False) otherwise.
+    n_mpz and a_mpz are expected to be gmpy2.mpz objects.
     """
-    n, a = args
-    n_mpz = mpz(n)
-    a_mpz = mpz(a)
+    n_mpz, a_mpz = args
 
-    # Base cases
-    if n_mpz < 2: return (a, False)
-    if n_mpz == 2: return (a, True) # 2 is prime
-    if n_mpz % 2 == 0: return (a, False) # Even numbers > 2 are composite
+    # Euler's criterion applies to odd n. n=2 is prime and handled earlier.
+    # Base a must be > 1 and < n, and gcd(a,n) must be 1.
+    if n_mpz <= 2 or n_mpz % 2 == 0:
+        return (int(a_mpz), False) 
+    if not (1 < a_mpz < n_mpz):
+        return (int(a_mpz), False) 
+    if gmpy2.gcd(a_mpz, n_mpz) != 1:
+        return (int(a_mpz), False) # n is composite if a shares a factor (and a < n)
 
-    # Find s and d such that n-1 = 2^s * d, where d is odd
-    d = n_mpz - 1
-    s = 0
-    while d % 2 == 0:
-        d //= 2
-        s += 1
+    exponent = (n_mpz - 1) // 2
+    try:
+        x = powmod(a_mpz, exponent, n_mpz)
+    except ValueError: # Should be very rare given the checks above
+        return (int(a_mpz), False)
 
-    # 1. Calculate x = a^d mod n
-    x = powmod(a_mpz, d, n_mpz)
+    # Check if x is 1 or n-1 (which is congruent to -1 mod n_mpz)
+    if x == 1 or x == (n_mpz - 1):
+        return (int(a_mpz), True)
+    else:
+        return (int(a_mpz), False)
 
-    # If x == 1 or x == n-1, the test passed
-    if x == 1 or x == n_mpz - 1:
-        return (a, True)
-
-    # 2. Repeat squaring s-1 times
-    for _ in range(s - 1): 
-        x = powmod(x, 2, n_mpz) 
-        if x == n_mpz - 1:
-            return (a, True) 
-        if x == 1:
-            return (a, False) 
-
-    return (a, False)
-
-def run_primality_tests(n, bases, progress_bar_widget, root_widget, start_percentage):
+def run_euler_tests_parallel(n_mpz, bases_int_list, progress_bar_widget, root_widget, start_percentage):
     """
-    Runs the Miller-Rabin primality test in parallel for multiple bases.
+    Runs the Euler-based primality test in parallel for multiple bases.
+    n_mpz: The number to test (gmpy2.mpz).
+    bases_int_list: A list of integer bases to test.
     Updates a progress bar during execution.
     Returns a list of (base, pass/fail) tuples.
     """
-    pool = multiprocessing.Pool(processes=len(bases))
-    args = [(n, a) for a in bases]
+    # Prepare arguments for the pool, ensuring bases are valid for the test with n_mpz
+    args_for_pool = []
+    for b_int in bases_int_list:
+        if 1 < b_int < n_mpz: # Base must be > 1 and < n
+            # Further check: gcd(b_int, n_mpz) == 1 for Euler's criterion
+            # This is handled inside euler_test_single_base now, so we can pass it.
+            args_for_pool.append((n_mpz, mpz(b_int)))
     
     results_from_pool = []
-    num_bases = len(bases)
+    if not args_for_pool: 
+        # This can happen if n_mpz is very small (e.g., 3) and all default_bases are >= n_mpz
+        # Or if the user_provided base is also unsuitable.
+        # The check_prime function should handle very small n before calling this.
+        return results_from_pool 
+        
+    num_bases = len(args_for_pool)
     bases_processed = 0
-
-    # We use executor.map to preserve order if needed,
-    # or as_completed to update the progress bar immediately after a task is finished.
-    # For the progress bar, as_completed is better.
-
-    # The total range for the progress bar that this function should cover
     progress_range = PROGRESS_BAR_MAX - start_percentage
 
-    # ProcessPoolExecutor is more suitable for CPU-bound tasks and integrates better with as_completed
     with ProcessPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
-        future_to_base = {executor.submit(miller_rabin_test, arg): arg[1] for arg in args}
+        future_to_base_arg = {executor.submit(euler_test_single_base, arg_pair): arg_pair for arg_pair in args_for_pool}
         
-        for future in concurrent.futures.as_completed(future_to_base):
-            base = future_to_base[future]
+        for future in concurrent.futures.as_completed(future_to_base_arg):
+            original_arg_pair = future_to_base_arg[future]
+            # base_tested_mpz = original_arg_pair[1] # This is the mpz version of the base
             try:
-                results_from_pool.append(future.result()) # Store (base, passed)
+                result_tuple = future.result() # (int_base, bool_passed)
+                results_from_pool.append(result_tuple) 
             except Exception as exc:
-                # print(f"Base {base} generated an exception: {exc}")
-                results_from_pool.append((base, False)) # In case of an error, assume the test failed
+                # print(f"Error in Euler test worker for base {int(base_tested_mpz)}: {exc}")
+                # If a worker process dies or has an unhandled error, record failure for that base.
+                results_from_pool.append((int(original_arg_pair[1]), False)) # Use the original base for reporting
             
             bases_processed += 1
-            current_progress = start_percentage + int((bases_processed / num_bases) * progress_range)
-            progress_bar_widget['value'] = current_progress
-            root_widget.update_idletasks()
+            if num_bases > 0:
+                 current_progress = start_percentage + int((bases_processed / num_bases) * progress_range)
+                 if progress_bar_widget:
+                     progress_bar_widget['value'] = current_progress
+            if root_widget:
+                 root_widget.update_idletasks()
 
-    pool.close() # This should no longer be here if we are using ProcessPoolExecutor
-    pool.join()  # This should no longer be here
-
-    # Sort results by base for consistency, if needed
-    # results_from_pool.sort(key=lambda x: x[0]) 
-    # If concurrent.futures.as_completed does not return in order, and order is important, we would have to address that.
-    # For this case, we'll leave them as they arrived for now.
-    # If we want an exact order, we should use executor.map and assign the results correctly.
-    # For simplicity, we'll return them as they arrived for now, and change to map if needed.
-    # Alternatively, we can sort at the end:
     return sorted(results_from_pool, key=lambda x: x[0])
 
-# -------------------  GUI FUNCTIONS  -------------------
-
-# Helper function to parse input (original logic from get_input, but takes a string)
 def parse_input_to_int(input_str):
     """
     Parses an input string (number or mathematical expression) using sympy.
@@ -227,16 +202,15 @@ def parse_input_to_int(input_str):
     try:
         number_expr = sympy.sympify(input_str)
         if not number_expr.is_number:
-            # If sympify returns a symbolic expression (e.g., 'x'), not a number
-            messagebox.showerror("Input Error", f"Expression \"{input_str}\" did not evaluate to a number.")
+            messagebox.showerror("Input Error", f"Expression '{input_str}' did not evaluate to a number.")
             return None
-        number_int = int(number_expr) # Conversion to Python int
+        number_int = int(number_expr) 
     except Exception as e:
-        messagebox.showerror("Input Error", f"Could not parse \"{input_str}\". Please insert a valid integer or mathematical expression.\nDetails: {e}")
+        messagebox.showerror("Input Error", f"Could not parse '{input_str}'. Please insert a valid integer or mathematical expression.\nDetails: {e}")
         return None
     return number_int
 
-def get_input(): # This function remains for backward compatibility if called elsewhere, but check_prime no longer uses it directly
+def get_input(): 
     """
     Reads a number (or mathematical expression) from the text field
     and attempts to parse it with sympy. Returns an integer or None on error.
@@ -253,7 +227,7 @@ def get_a():
     try:
         number_int = int(input_string)
     except Exception:
-        messagebox.showerror("Input Error", "Please insert only integer values")
+        messagebox.showerror("Input Error", "Please insert only integer values for base 'a'") # Clarified error message
         return None
     return number_int
 
@@ -264,134 +238,144 @@ def check_prime():
     """
     input_string = text_number.get("1.0", tk.END).strip()
 
-    # Very first checks, even before time measurement or anything else
-    if not input_string: # Check for an empty string
+    if not input_string: 
         return
-    if input_string == "0": # Special command to terminate the program (as raw text)
+    if input_string == "0": 
         root.quit()
         return
 
-    start_time_overall = time.time() # Start time of the overall testing
+    start_time_overall = time.time() 
 
-    # 1. FIRST TESTING LOGIC: Direct text expression of a known Mersenne prime
-    if check_direct_mersenne_expression(input_string, start_time_overall, result_label, root, progress_bar):
-        return # If it's an M_p expression, we finish
+    if check_direct_mersenne_expression(input_string, start_time_overall, root, progress_bar): # MODIFIED: removed result_text_area
+        return 
 
-    # 2. Processing input to a number (if it wasn't a direct Mersenne expression)
-    # We use the parse_input_to_int helper function
     n_input = parse_input_to_int(input_string)
 
-    if n_input is None: # The error was displayed in parse_input_to_int
+    if n_input is None: 
         return
     
-    # If we got here, it means the input was processed into a number
-    # and it wasn't a direct M_p expression, nor an empty string, nor "0" to terminate.
-    # Note: The check for n_input == 0 (as a value) was already implicitly covered, 
-    # if parse_input_to_int returned 0 and input_string was not "0" previously.
-    # If we wanted a special action for the numerical value 0 (e.g., other than termination),
-    # we could add it here. For consistency, if "0" terminates, then an expression like "1-1" should too.
-    # Therefore, if input_string == "0" is handled above, n_input == 0 here no longer has a special meaning for termination.
-
-    # Initialize progress bar (if we got here, the expression wasn't M_p)
-    # and the number was successfully processed
     progress_bar['value'] = 0 
     root.update_idletasks()
 
-    # Attempt conversion to mpz right at the start of value processing
     try:
-        n_mpz_val = mpz(n_input) # n_input is already a Python int from parse_input_to_int
+        n_mpz_val = mpz(n_input) 
     except Exception as e: 
         messagebox.showerror("Input Error", f"Could not convert input to a large number: {e}")
-        result_label.config(text=f"Error: Could not process input {n_input}")
+        update_result_text(f"Error: Could not process input {n_input}") # MODIFIED: Use helper
         return
 
-    # Immediate results for very small numbers
     if n_mpz_val <= 1:
-        result_label.config(text=f"{n_mpz_val} is not prime (by definition).")
-        progress_bar['value'] = PROGRESS_BAR_MAX # Finished
+        update_result_text(f"{n_mpz_val} is not prime (by definition).") # MODIFIED: Use helper
+        progress_bar['value'] = PROGRESS_BAR_MAX 
         root.update_idletasks()
         return
     if n_mpz_val == 2 or n_mpz_val == 3 or n_mpz_val == 5 or n_mpz_val == 7:
         end_time_overall = time.time()
-        result_label.config(text=f"{n_mpz_val} is prime.\n(Verified in {end_time_overall - start_time_overall:.4f} seconds)")
-        progress_bar['value'] = PROGRESS_BAR_MAX # Finished
+        update_result_text(f"{n_mpz_val} is prime.\n(Verified in {end_time_overall - start_time_overall:.4f} seconds)") # MODIFIED: Use helper
+        progress_bar['value'] = PROGRESS_BAR_MAX 
         root.update_idletasks()
         return
 
-    # Check for known Mersenne primes (numeric value)
-    # This function updates the progress bar to MAX if it finds a Mersenne prime
-    if check_known_mersenne_primes(n_mpz_val, start_time_overall, result_label, root, progress_bar):
-        # result_label and progress_bar are already updated in the helper function
+    if check_known_mersenne_primes(n_mpz_val, start_time_overall, root, progress_bar): # MODIFIED: removed result_text_area
         return
     
-    progress_bar['value'] = 10 # Initial step after basic checks and Mersenne test
+    progress_bar['value'] = 10 
     root.update_idletasks()
 
-    # If the number is less than 10^20, use sympy.isprime (quick check)
-    # We use the original n_input value for comparison with big_num, as big_num is an int
     if n_input < big_num:
-        # For sympy.isprime, we can use n_input if it's an int, or n_mpz_val
-        # sympy should handle both types, but we can use n_input to be sure
         is_sympy_prime = sympy.isprime(n_input) 
         end_time_overall = time.time()
-        if is_sympy_prime:
-            result_text = f"{n_input} is prime (verified by SymPy)."
-        else:
-            result_text = f"{n_input} is composite (verified by SymPy)."
-        result_label.config(text=f"{result_text}\n(Tested in {end_time_overall - start_time_overall:.4f} seconds)")
-        progress_bar['value'] = PROGRESS_BAR_MAX # Finished by SymPy test
+        result_text_sympy = f"{n_input} is {'prime' if is_sympy_prime else 'composite'} (verified by SymPy)."
+        update_result_text(f"{result_text_sympy}\n(Tested in {end_time_overall - start_time_overall:.4f} seconds)") # MODIFIED: Use helper & combined text
+        progress_bar['value'] = PROGRESS_BAR_MAX
         root.update_idletasks()
         return
 
-    progress_bar['value'] = 20 # Before classical filter
+    progress_bar['value'] = 20
     root.update_idletasks()
 
-    # For large numbers, first apply the classical filter
-    # We use n_mpz_val for classical_filter, as it expects mpz
     filter_result = classical_filter(n_mpz_val)
     if filter_result is not None:
         end_time_overall = time.time()
-        result_label.config(text=f"{filter_result}\n(Filtered in {end_time_overall - start_time_overall:.4f} seconds)")
-        progress_bar['value'] = PROGRESS_BAR_MAX # Finished by filter
+        update_result_text(f"{filter_result}\n(Filtered in {end_time_overall - start_time_overall:.4f} seconds)") # MODIFIED: Use helper
+        progress_bar['value'] = PROGRESS_BAR_MAX 
         root.update_idletasks()
         return
 
-    progress_bar['value'] = 40 # After classical filter, before Miller-Rabin
+    progress_bar['value'] = 40 
     root.update_idletasks()
 
-    # Get the user-specified base and construct the list of bases
-    base_input = get_a()
-    if base_input is None:
+    base_input_val = get_a() # Renamed to avoid conflict
+    if base_input_val is None:
         return
-    default_bases = [2, 3, 5, 7, 11, 13]
-    bases = sorted(set([base_input] + default_bases))
+    # It's good practice to ensure the user-provided base isn't 0 or 1, 
+    # or negative, as they are not meaningful for these tests.
+    if base_input_val <= 1:
+        messagebox.showerror("Input Error", "Base 'a' must be greater than 1.")
+        return
+        
+    default_bases = [2, 3, 5, 7, 11, 13] # Standard small prime bases
+    # Ensure user base is added and the list contains unique, sorted bases.
+    # Filter out bases >= n_mpz_val if n_mpz_val is small, though test handles it.
+    bases_to_test = sorted(list(set([base_input_val] + default_bases)))
+    # Filter out bases that are not suitable (e.g. >= n or <=1, though euler_test_single_base might handle some)
+    bases_to_test = [b for b in bases_to_test if 1 < b < n_mpz_val]
+    if not bases_to_test: # If all default bases are >= n or user base was unsuitable
+        if 1 < base_input_val < n_mpz_val: # User input was fine, but defaults were too large
+            bases_to_test = [base_input_val]
+        else: # No suitable bases found, e.g. n is very small (2,3) or user base also unsuitable
+             # This case should ideally be caught earlier (n=2,3 are prime). 
+             # If n is e.g. 4, bases [2,3] are fine. If n=2, list will be empty.
+             # If n_mpz_val is very small (e.g., 2 or 3), this list might be empty.
+             # However, such small n should already be handled by direct checks.
+             # For robustness, if list is empty, maybe default to a single small prime if n is large enough e.g. 2 if n > 2
+            if n_mpz_val > 2 and not any(1 < b_ < n_mpz_val for b_ in default_bases + [base_input_val]):
+                 # This means n is small, and all typical bases are too large or invalid
+                 # This should have been caught by n_input < big_num or direct n checks
+                 update_result_text(f"{n_mpz_val} is too small for the selected bases or direct primality test applies.")
+                 progress_bar['value'] = PROGRESS_BAR_MAX
+                 return
+            elif not bases_to_test: # Still no bases, and n wasn't caught by above logic for very small n
+                 # Fallback if n is not extremely small but chosen bases + user base are not < n
+                 # This typically means n is prime (2,3,5...) and caught earlier, or composite and caught by filter
+                 # Or user entered a base >= n. The check `1 < b < n_mpz_val` is crucial.
+                 # If no bases are left, it might imply sympy.isprime should have been used or n is very small.
+                 # For now, let's ensure that if n_mpz_val itself is small, it's handled before this point.
+                 # If bases_to_test is empty AND n_mpz_val is > threshold for direct checks (e.g. > 7)
+                 # AND sympy.isprime wasn't used (n_mpz_val >= big_num), then it is an issue.
+                 # The n_input < big_num check should cover most of these.
+                 # For now, if no valid bases, report it.
+                 update_result_text(f"No suitable bases found for testing {n_mpz_val} (bases must be >1 and <N).")
+                 progress_bar['value'] = PROGRESS_BAR_MAX
+                 return
 
-    # Inform the user that the tests are running
-    result_label.config(text="Running Miller-Rabin tests, please wait...")
+
+    update_result_text("Running Euler-based tests, please wait...") # MODIFIED: Use helper
     root.update_idletasks()
 
-    # Run the Miller-Rabin tests in parallel
-    results = run_primality_tests(n_mpz_val, bases, progress_bar, root, 50)
+    # Call the new parallel Euler test function
+    results = run_euler_tests_parallel(n_mpz_val, bases_to_test, progress_bar, root, 50) # MODIFIED call
 
-    # Evaluation of results from Miller-Rabin tests
-    composite_found = False
-    results_text = ""
-    for base, passed in results: # results is now a list of (base, passed) pairs
-        if passed:
-            results_text += f"Base {base}: Pass\n"
-        else:
-            results_text += f"Base {base}: Fail\n"
-            composite_found = True
-
-    if composite_found:
-        final_text = "Number is composite based on Miller-Rabin test(s):\n" + results_text
+    all_passed = True
+    results_text_euler = "" 
+    if not results: # Should not happen if bases_to_test was not empty
+        all_passed = False # Or handle as inconclusive
+        results_text_euler = "No bases were tested.\n"
     else:
-        final_text = "Number is likely prime (passed Miller-Rabin tests for all bases):\n" + results_text
+        for base, passed in results: 
+            results_text_euler += f"Base {base}: {'Pass' if passed else 'Fail'}\n"
+            if not passed:
+                all_passed = False
+
+    if all_passed:
+        final_text = "Number is likely prime (passed Euler-based tests for all bases):\n" + results_text_euler
+    else:
+        final_text = "Number is composite based on Euler-based test(s):\n" + results_text_euler
     
-    end_time_overall = time.time() # Total time at the end
+    end_time_overall = time.time() 
     final_text += f"\nTotal time: {end_time_overall - start_time_overall:.4f} seconds."
-    result_label.config(text=final_text)
-    progress_bar['value'] = PROGRESS_BAR_MAX # Completely finished
+    update_result_text(final_text) # MODIFIED: Use helper
+    progress_bar['value'] = PROGRESS_BAR_MAX 
     root.update_idletasks()
 
 # -------------------  IMPROVED GUI DESIGN  -------------------
@@ -452,9 +436,9 @@ instructions_frame.pack(fill="x", padx=20, pady=(15,5)) # Slightly adjusted padd
 instruction_text = (
     "This program uses sympy.isprime for numbers less than 10^20.\n"
     "For larger numbers, it first applies a classical filter (trial division by small primes\n"
-    "and numbers of the form 6k±1). If the number passes this filter, the Miller-Rabin\n"
-    "primality test is then used with multiple bases.\n\n"
-    "A 'likely prime' result from the Miller-Rabin test indicates a very high probability\n"
+    "and numbers of the form 6k±1). If the number passes this filter, an Euler-based test (a^((N-1)/2) % N == ±1) \n"
+    "is then used with multiple bases.\n\n"
+    "A 'likely prime' result from the Euler-based test indicates a high probability\n"
     "that the number is prime.\n\n"
     "Pseudoprimes are non-genuine primes. For enhanced results, several bases (e.g., 2, 3, 5, 7, 11, 13)\n"
     "will be tested concurrently using multiprocessing.\n\n"
@@ -494,7 +478,7 @@ text_number.config(yscrollcommand=scrollbar_y.set)
 
 # Input Base 'a'
 tk.Label(
-    input_frame, text="Test with base 'a':", bg=BG_COLOR, fg=TEXT_COLOR,
+    input_frame, text="Test with base 'a' (used in Euler test, defaults exist):", bg=BG_COLOR, fg=TEXT_COLOR,
     font=LABEL_FONT
 ).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0)) # Align left
 
@@ -537,15 +521,44 @@ progress_bar.pack(fill="x", expand=True, padx=5, pady=5)
 # Label frame for results
 result_frame = tk.LabelFrame(
     root, text="Result", bg=BG_COLOR, fg=TITLE_TEXT_COLOR,
-    font=TITLE_FONT, bd=2, relief="solid", borderwidth=1, highlightbackground=BORDER_COLOR
+    font=LABELFRAME_TITLE_FONT, bd=2, relief="solid", borderwidth=1, highlightbackground=BORDER_COLOR # Use LabelFrame Title Font
 )
 result_frame.pack(fill="both", expand=True, padx=20, pady=(10,20)) # Larger padding
 
-result_label = tk.Label(
-    result_frame, text="", wraplength=680, justify="left", # Adjusted wraplength
-    bg=BG_COLOR, fg=TEXT_COLOR, font=RESULT_FONT 
+# Make the result_frame's content area (where text area will go) expand
+result_frame.grid_rowconfigure(0, weight=1)
+result_frame.grid_columnconfigure(0, weight=1)
+
+# Create a Text widget for results with a Scrollbar
+result_text_area = tk.Text(
+    result_frame, 
+    wrap=tk.WORD, # Wrap text at word boundaries
+    bg=BG_COLOR, 
+    fg=TEXT_COLOR, 
+    font=RESULT_FONT,
+    relief="flat", # Flat relief to blend with the frame
+    borderwidth=0,
+    highlightthickness=0,
+    padx=10, # Padding inside the text area
+    pady=10
 )
-result_label.pack(padx=15, pady=15, fill="both", expand=True)
+result_text_area.grid(row=0, column=0, sticky="nsew") # Use grid to place it
+
+result_scrollbar = ttk.Scrollbar( # Use ttk.Scrollbar for better styling
+    result_frame, 
+    orient="vertical", 
+    command=result_text_area.yview
+)
+result_scrollbar.grid(row=0, column=1, sticky="ns") # Place scrollbar next to text area
+
+result_text_area.config(yscrollcommand=result_scrollbar.set, state="disabled") # Link scrollbar and set initial state to disabled
+
+# Helper function to update the result_text_area
+def update_result_text(new_text):
+    result_text_area.config(state="normal")
+    result_text_area.delete("1.0", tk.END)
+    result_text_area.insert(tk.END, new_text)
+    result_text_area.config(state="disabled")
 
 if __name__ == '__main__':
     root.mainloop()
