@@ -262,7 +262,8 @@ sys.set_int_max_str_digits(0) # Allow very long integers to be converted to stri
 import sympy
 import math
 import random
-from gmpy2 import mpz, powmod, is_prime as gmpy2_is_prime, gcd
+# Ensure specific gmpy2 functions needed for random base generation are directly imported
+from gmpy2 import mpz, powmod, is_prime as gmpy2_is_prime, gcd, random_state, mpz_random
 
 # Thresholds
 big_num_sympy = 10**20  # Use SymPy for numbers up to this size
@@ -413,9 +414,10 @@ def check_prime(n_expr_str, bases_str):
                         # if n=2, upper_limit_for_mpz_random = -1, so this is protective.
                         bases_to_test = []
                     else:
-                        # Initialize a random state. Using hash of n for some variability.
+                        # Initialize a random state.
                         # Pyodide might not have a strong OS random source, so this is a basic seed.
-                        rand_state = gmpy2.random_state(hash(str(n)) + random.randint(0, 10000))
+                        # Use the directly imported random_state
+                        rand_state = random_state(hash(str(n)) + random.randint(0, 10000))
                         
                         # Attempt to generate num_random_bases unique random bases
                         # Try a bit more times than num_random_bases to increase chance of getting unique ones
@@ -430,7 +432,8 @@ def check_prime(n_expr_str, bases_str):
                             if len(generated_bases_set) >= actual_bases_to_generate:
                                 break
                             try:
-                                random_offset = gmpy2.mpz_random(rand_state, upper_limit_for_mpz_random)
+                                # Use the directly imported mpz_random
+                                random_offset = mpz_random(rand_state, upper_limit_for_mpz_random)
                                 a_base = mpz(2) + random_offset # Generates in [2, n-2]
                                 if 1 < a_base < n: # Double check, should be guaranteed by logic if n > 3
                                     generated_bases_set.add(a_base)
