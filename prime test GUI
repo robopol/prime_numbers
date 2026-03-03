@@ -10,6 +10,8 @@ import random
 import time
 import concurrent.futures
 from tkinter import ttk
+import sys
+sys.set_int_max_str_digits(0)
 
 # Initialize gmpy2 random state for better randomness across runs
 gmpy2.random_state(int(time.time()))
@@ -18,17 +20,13 @@ gmpy2.random_state(int(time.time()))
 # Source: https://www.mersenne.org/primes/ (GIMPS) - as of October 2024
 KNOWN_MERSENNE_EXPONENTS = {
     2, 3, 5, 7, 13, 17, 19, 31, 61, 89, 107, 127, 521, 607, 1279, 2203, 2281, 3217, 4253, 4423,
-    9689, 9941, 11213, 19937, 21701, 23209, 44497, 86243, 110503, 132049, 216091, 756839,
+    9689, 9941, 11213, 19937, 21701,23209, 44497, 86243, 110503, 132049, 216091, 756839,
     859433, 1257787, 1398269, 2976221, 3021377, 6972593, 13466917, 20996011, 24036583,
     25964951, 30402457, 32582657, 37156667, 42643801, 43112609, 57885161, 74207281,
     77232917, 82589933, 136279841
 }
 
 PROGRESS_BAR_MAX = 100 # Define a global variable for the progress bar maximum
-
-# Helper function to update the result_text_area (defined later, but declared here for clarity if needed or move definition up)
-# This will be defined near the GUI section later.
-# def update_result_text(new_text): pass 
 
 # -------------------  LOGIC  -------------------
 
@@ -76,16 +74,33 @@ def check_known_mersenne_primes(n_mpz, start_time_check, root_widget, progress_b
     if n_mpz <= 7: 
         return False
 
+    P_EXPONENT_THRESHOLD_FOR_DISPLAY = 127 # Threshold for p above which we don't print the full M_p value
+
     for p_exponent in KNOWN_MERSENNE_EXPONENTS: 
         try:
+            # Optimization: if log2(n_mpz) + 1 is not p_exponent, it's not M_p.
+            # This is a rough check, as n_mpz is 2^p - 1, so log2(n_mpz) is very close to p.
+            # int(gmpy2.log2(n_mpz)) should be p_exponent -1 if n_mpz = 2^p-1 and p is large.
+            # A more direct check is to compute M_p directly.
+            # The current loop directly computes and compares M_p, which is fine.
             power_of_2 = mpz(2)**p_exponent
             mersenne_candidate = power_of_2 - 1
         except OverflowError: 
+            # This might happen if p_exponent is extremely large and system resources are limited
+            # for the power_of_2 calculation, though gmpy2 should handle it well.
+            # If we can't even calculate 2^p, we can't compare.
             continue 
 
         if n_mpz == mersenne_candidate:
             end_time_check = time.time()
-            update_result_text(f"{n_mpz} is a known Mersenne Prime (M{p_exponent}).\n(Verified in {end_time_check - start_time_check:.4f} seconds)") # MODIFIED: Use helper
+            result_text_mersenne = ""
+            if p_exponent > P_EXPONENT_THRESHOLD_FOR_DISPLAY:
+                result_text_mersenne = f"Input number corresponds to M_{p_exponent}.\nThis is a known Mersenne Prime."
+            else:
+                # For smaller p, display the value if it was calculated for comparison
+                result_text_mersenne = f"Input number {n_mpz} (which is M_{p_exponent}) is a known Mersenne Prime."
+            
+            update_result_text(f"{result_text_mersenne}\n(Verified by known M_p check in {end_time_check - start_time_check:.4f} seconds)")
             if progress_bar_widget: 
                 progress_bar_widget['value'] = PROGRESS_BAR_MAX
             root_widget.update_idletasks()
@@ -118,47 +133,136 @@ def classical_filter(n):
 
 def euler_test_single_base(args):
     """
-    Performs an Euler-based primality test for a given number n and base a.
-    Checks if a^((n-1)/2) % n is 1 or n-1 (Euler's criterion).
-    Returns (base, True) if the condition holds, (base, False) otherwise.
+    Performs an Euler-Jacobi (Solovay-Strassen style) test for a given number n and base a.
+    Checks whether a^((n-1)/2) % n matches the Jacobi symbol (a/n) modulo n.
+    Returns (base, passed_bool, residue_sign), where residue_sign is:
+      1  -> residue was +1
+     -1  -> residue was -1 (n-1)
+      0  -> other / invalid / failure path
     n_mpz and a_mpz are expected to be gmpy2.mpz objects.
     """
     n_mpz, a_mpz = args
 
-    # Euler's criterion applies to odd n. n=2 is prime and handled earlier.
+    # Euler-Jacobi applies to odd n. n=2 is prime and handled earlier.
     # Base a must be > 1 and < n, and gcd(a,n) must be 1.
     if n_mpz <= 2 or n_mpz % 2 == 0:
-        return (int(a_mpz), False) 
+        return (int(a_mpz), False, 0) 
     if not (1 < a_mpz < n_mpz):
-        return (int(a_mpz), False) 
+        return (int(a_mpz), False, 0) 
     if gmpy2.gcd(a_mpz, n_mpz) != 1:
-        return (int(a_mpz), False) # n is composite if a shares a factor (and a < n)
+        return (int(a_mpz), False, 0) # n is composite if a shares a factor (and a < n)
 
     exponent = (n_mpz - 1) // 2
     try:
         x = powmod(a_mpz, exponent, n_mpz)
     except ValueError: # Should be very rare given the checks above
-        return (int(a_mpz), False)
+        return (int(a_mpz), False, 0)
 
-    # Check if x is 1 or n-1 (which is congruent to -1 mod n_mpz)
+    jacobi_symbol = gmpy2.jacobi(a_mpz, n_mpz)
+    if jacobi_symbol == 0:
+        return (int(a_mpz), False, 0)
+
+    jacobi_mod_n = n_mpz - 1 if jacobi_symbol == -1 else mpz(jacobi_symbol)
+    residue_sign = 1 if x == 1 else (-1 if x == (n_mpz - 1) else 0)
+    return (int(a_mpz), x == jacobi_mod_n, residue_sign)
+
+def miller_rabin_test_single_base(n_mpz, a_mpz):
+    """
+    Miller-Rabin strong probable-prime test for one base.
+    Returns True if n_mpz passes for this base, False if it is definitely composite.
+    """
+    if n_mpz == 2:
+        return True
+    if n_mpz <= 1 or n_mpz % 2 == 0:
+        return False
+    if not (1 < a_mpz < n_mpz):
+        return False
+    if gmpy2.gcd(a_mpz, n_mpz) != 1:
+        return False
+
+    d = n_mpz - 1
+    s = 0
+    while d % 2 == 0:
+        d //= 2
+        s += 1
+
+    x = powmod(a_mpz, d, n_mpz)
     if x == 1 or x == (n_mpz - 1):
-        return (int(a_mpz), True)
-    else:
-        return (int(a_mpz), False)
+        return True
+
+    for _ in range(s - 1):
+        x = powmod(x, 2, n_mpz)
+        if x == (n_mpz - 1):
+            return True
+    return False
+
+def generate_random_guard_bases(n_mpz, requested_count, excluded_bases=None):
+    """
+    Generates random unique bases in [2, n-2] for additional guard checks.
+    """
+    if requested_count <= 0 or n_mpz <= 3:
+        return []
+
+    excluded_set = set()
+    if excluded_bases:
+        excluded_set = {int(b) for b in excluded_bases if 1 < b < n_mpz}
+
+    generated = []
+    random_state_obj = gmpy2.random_state()
+    attempts = 0
+    max_attempts = requested_count * 200
+
+    while len(generated) < requested_count and attempts < max_attempts:
+        candidate = int(gmpy2.mpz_random(random_state_obj, n_mpz - 3) + mpz(2))
+        if candidate not in excluded_set:
+            excluded_set.add(candidate)
+            generated.append(candidate)
+        attempts += 1
+
+    return generated
+
+def is_random_base_mode(bases_input_str):
+    """
+    True when bases were selected as random count (empty input or single integer count).
+    False when user provided an explicit comma-separated list.
+    """
+    if not bases_input_str:
+        return True
+    if ',' in bases_input_str:
+        return False
+    try:
+        int(bases_input_str)
+        return True
+    except ValueError:
+        return False
+
+def should_run_mr_guard(bases_input_str, passed_count, plus_one_count, minus_one_count):
+    """
+    Run MR guard only on suspicious Euler-Jacobi profiles to limit overhead.
+    """
+    if passed_count <= 0:
+        return False
+    if not is_random_base_mode(bases_input_str):
+        return False
+    if passed_count < 4:
+        return True
+
+    dominant = max(plus_one_count, minus_one_count)
+    return dominant == passed_count or (dominant / passed_count) >= 0.90
 
 def run_euler_tests_parallel(n_mpz, bases_int_list, progress_bar_widget, root_widget, start_percentage):
     """
-    Runs the Euler-based primality test in parallel for multiple bases.
+    Runs the Euler-Jacobi primality test in parallel for multiple bases.
     n_mpz: The number to test (gmpy2.mpz).
     bases_int_list: A list of integer bases to test.
     Updates a progress bar during execution.
-    Returns a list of (base, pass/fail) tuples.
+    Returns a list of (base, pass/fail, residue_sign) tuples.
     """
     # Prepare arguments for the pool, ensuring bases are valid for the test with n_mpz
     args_for_pool = []
     for b_int in bases_int_list:
         if 1 < b_int < n_mpz: # Base must be > 1 and < n
-            # Further check: gcd(b_int, n_mpz) == 1 for Euler's criterion
+            # Further check: gcd(b_int, n_mpz) is handled inside euler_test_single_base.
             # This is handled inside euler_test_single_base now, so we can pass it.
             args_for_pool.append((n_mpz, mpz(b_int)))
     
@@ -180,12 +284,12 @@ def run_euler_tests_parallel(n_mpz, bases_int_list, progress_bar_widget, root_wi
             original_arg_pair = future_to_base_arg[future]
             # base_tested_mpz = original_arg_pair[1] # This is the mpz version of the base
             try:
-                result_tuple = future.result() # (int_base, bool_passed)
+                result_tuple = future.result() # (int_base, bool_passed, residue_sign)
                 results_from_pool.append(result_tuple) 
             except Exception as exc:
-                # print(f"Error in Euler test worker for base {int(base_tested_mpz)}: {exc}")
+                # print(f"Error in Euler-Jacobi worker for base {int(base_tested_mpz)}: {exc}")
                 # If a worker process dies or has an unhandled error, record failure for that base.
-                results_from_pool.append((int(original_arg_pair[1]), False)) # Use the original base for reporting
+                results_from_pool.append((int(original_arg_pair[1]), False, 0)) # Use the original base for reporting
             
             bases_processed += 1
             if num_bases > 0:
@@ -263,20 +367,8 @@ def parse_bases_input(bases_input_str, n_mpz_for_random_generation):
 
     # Generate random bases if num_random_bases_to_generate is set
     if num_random_bases_to_generate > 0:
-        if n_mpz_for_random_generation is None or n_mpz_for_random_generation <= 3:
-            # Not enough range for random bases or n is too small for meaningful test with random bases
-            # Fallback to a sensible default if possible, or indicate an issue.
-            # If n is 2 or 3, it's usually handled before this point (is_prime check).
-            # For n=3, only base 2 is possible for Euler if we strictly follow a < n-1 for random.
-            # Let's rely on the checks in run_euler_tests_parallel to filter unsuitable bases later.
-            # Here, we'll just try to generate if the count is positive.
-            # If n is very small, the set of unique random bases might be small.
-            pass # No specific error here, let later stages handle small n.
-
-        # Max possible unique bases are (n-2) - 2 + 1 = n-3, for bases in [2, n-2]
-        # (n_mpz - 1) is upper bound for random_state, n_mpz-3 is the count of numbers in [2, n-2]
-        # Range for random bases: [2, n-2]. So, n-1 must be >= 2 for gmpy2.mpz_random.
-        # And n-3 must be > 0 for mpz_random to have a range.
+        if n_mpz_for_random_generation is None or n_mpz_for_random_generation <= 3:            
+            pass # No specific error here, let later stages handle small n.      
         
         max_possible_unique_random_bases = 0
         if n_mpz_for_random_generation > 3: # mpz(3) - 3 = 0, so n must be > 3
@@ -286,12 +378,7 @@ def parse_bases_input(bases_input_str, n_mpz_for_random_generation):
         actual_bases_to_generate = min(num_random_bases_to_generate, max_possible_unique_random_bases)
         
         if actual_bases_to_generate <= 0 and num_random_bases_to_generate > 0 and n_mpz_for_random_generation > 3 :
-             messagebox.showwarning("Bases Warning", f"Cannot generate {num_random_bases_to_generate} random bases for n={n_mpz_for_random_generation}. Not enough unique options.")
-             # We might still proceed if some default bases can be used or if user insists.
-             # For now, let's return empty if we can't generate what's asked.
-             # Or should we return a default like [2] if n is 3?
-             # The calling function check_prime will handle this better with its existing logic.
-             # Let's return an empty list, and check_prime can decide to use default_small_primes_bases if needed.
+             messagebox.showwarning("Bases Warning", f"Cannot generate {num_random_bases_to_generate} random bases for n={n_mpz_for_random_generation}. Not enough unique options.")             
              return [] # Indicates couldn't generate requested randoms.
 
         generated_bases_set = set()
@@ -307,29 +394,14 @@ def parse_bases_input(bases_input_str, n_mpz_for_random_generation):
             current_random_state = gmpy2.random_state()
 
             while len(generated_bases_set) < actual_bases_to_generate and attempts < MAX_GENERATION_ATTEMPTS:
-                # Generate random base in [2, n-2]
-                # mpz_random(state, limit) generates in [0, limit-1]
-                # So, limit should be (n-2) - 2 + 1 = n-3 (value of n_mpz_for_random_generation - 3)
-                # And then add 2 to shift to [2, n-2]
-                if n_mpz_for_random_generation - 3 > 0 : # ensure limit for mpz_random is positive
-                    # mpz_random's second arg is an exclusive upper bound for generated numbers starting from 0.
-                    # So, mpz_random(state, X) gives numbers in [0, X-1].
-                    # We want numbers in [2, n-2]. The size of this range is (n-2) - 2 + 1 = n-3.
-                    # So we generate a random number in [0, (n-3)-1] i.e. [0, n-4]
-                    # by calling mpz_random(state, n-3).
-                    # Then we add 2 to this result, to get a range of [2, n-4+2] = [2, n-2].
-                    # Pass the SAME state object to each call
+                
+                if n_mpz_for_random_generation - 3 > 0 : # ensure limit for mpz_random is positive                    
                     rand_base_mpz = gmpy2.mpz_random(current_random_state, n_mpz_for_random_generation - 3) + mpz(2)
                     generated_bases_set.add(int(rand_base_mpz)) # Store as int
-                else:
-                    # This case (n_mpz_for_random_generation - 3 <= 0) implies n <= 3.
-                    # If n=3, max_possible_unique_random_bases is 0, so actual_bases_to_generate should be 0.
-                    # This loop (actual_bases_to_generate > 0) should not run for n <= 3 normally.
-                    # Breaking here is a safeguard if somehow entered.
+                else:                    
                     break 
-                attempts += 1
+                attempts += 1            
             
-            # Warning message if not enough unique bases were generated
             # Show warning only if we intended to generate some, and generated less than planned from the request.
             if len(generated_bases_set) < actual_bases_to_generate and actual_bases_to_generate > 0:
                  messagebox.showwarning("Bases Warning", f"Could only generate {len(generated_bases_set)} unique random bases out of {actual_bases_to_generate} planned (from {num_random_bases_to_generate} requested for n). Max attempts: {attempts}.")
@@ -433,7 +505,7 @@ def check_prime():
     if progress_bar: progress_bar['value'] = current_progress_val
     root.update_idletasks()
     
-    # Step 2: Parse bases for Euler Test
+    # Step 2: Parse bases for Euler-Jacobi test
     bases_input_str = entry_a.get().strip()
     # Pass n_mpz to parse_bases_input for random generation range.
     selected_bases_int_list = parse_bases_input(bases_input_str, n_mpz)
@@ -463,22 +535,15 @@ def check_prime():
 
 
     if not selected_bases_int_list:
-        # This means no bases were specified, random generation failed/wasn't applicable, AND fallback defaults are also unsuitable (e.g. n is too small like 2)
-        # Or if n=3 and [2] was selected, this block is skipped.
-        # For n=2, it's already handled by is_prime or direct check.
-        # If we reach here with no bases for a larger n, it's an issue.
-        # However, gmpy2.is_prime likely caught n=2.
-        # If n=3, selected_bases_int_list should be [2].
-        # This block is more a safeguard.
+        
         if n_mpz > 2: # Only show warning if n is something that should have been testable
-             update_result_text(f"Could not perform Euler test as no suitable bases were provided or could be determined (e.g., number is too small for chosen/default bases, or random generation failed).")
-        # If n_mpz was 2, it's prime, already handled.
-        # If n_mpz was 1, also handled.
+             update_result_text(f"Could not perform Euler-Jacobi test as no suitable bases were provided or could be determined (e.g., number is too small for chosen/default bases, or random generation failed).")
+        
         if progress_bar: progress_bar['value'] = 0
         return
 
-    # Step 3: Euler Probabilistic Primality Test (Parallel)
-    update_result_text(f"Testing with Euler test using bases: {selected_bases_int_list}...")
+    # Step 3: Euler-Jacobi probabilistic primality test (parallel)
+    update_result_text(f"Testing with Euler-Jacobi using bases: {selected_bases_int_list}...")
     root.update_idletasks()
 
     euler_results = run_euler_tests_parallel(n_mpz, selected_bases_int_list, progress_bar, root, current_progress_val)
@@ -489,23 +554,20 @@ def check_prime():
     all_passed = True
     failed_bases = []
     passed_bases = []
+    plus_one_count = 0
+    minus_one_count = 0
 
-    for base, passed_test in euler_results:
+    for base, passed_test, residue_sign in euler_results:
         if passed_test:
             passed_bases.append(base)
+            if residue_sign == 1:
+                plus_one_count += 1
+            elif residue_sign == -1:
+                minus_one_count += 1
         else:
             all_passed = False
             failed_bases.append(base)
-            # If any base fails, n is definitely composite (if gcd(base,n)=1 was met in worker)
-            # Or the base was unsuitable (e.g. gcd(base,n)!=1), which also implies composite if base < n.
-            # The worker function euler_test_single_base returns (base, False) if gcd(a,n)!=1.
-            # So, a False here means either Euler's criterion failed OR gcd(a,n)!=1 was found.
-            # If gcd(a,n)!=1 and a < n, then n is composite.
             
-            # Check if the failure was due to gcd(a,n) != 1
-            # We need to re-check gcd here as the worker doesn't explicitly return this info, only pass/fail.
-            # This is a bit redundant but useful for a more informative message.
-            # Alternatively, the worker could return a more detailed status.
             factor_found_with_base = None
             if mpz(base) < n_mpz : # only makes sense if base < n
                 common_divisor = gmpy2.gcd(mpz(base), n_mpz)
@@ -513,19 +575,75 @@ def check_prime():
                     factor_found_with_base = common_divisor
 
             if factor_found_with_base and factor_found_with_base != n_mpz : # Ensure factor is not n itself
-                update_result_text(f"The number is composite.\nFailed Euler test for base {base} (found factor {factor_found_with_base}).\nTested in {total_time:.4f} seconds.")
+                update_result_text(f"The number is composite.\nFailed Euler-Jacobi test for base {base} (found factor {factor_found_with_base}).\nTested in {total_time:.4f} seconds.")
             else:
-                update_result_text(f"The number is composite.\nFailed Euler test for base {base}.\nTested in {total_time:.4f} seconds.")
+                update_result_text(f"The number is composite.\nFailed Euler-Jacobi test for base {base}.\nTested in {total_time:.4f} seconds.")
             
             if progress_bar: progress_bar['value'] = PROGRESS_BAR_MAX
             return # Stop on first failure
 
     if all_passed:
-        # If all selected bases passed the Euler test
+        # If all selected bases passed the Euler-Jacobi test
         if not euler_results: # Should not happen if selected_bases_int_list was not empty
-             update_result_text(f"No Euler tests were performed. Result inconclusive. (Time: {total_time:.4f}s)")
+             update_result_text(f"No Euler-Jacobi tests were performed. Result inconclusive. (Time: {total_time:.4f}s)")
         else:
-            update_result_text(f"The number is likely prime (passed Euler test for bases: {passed_bases}).\nTested in {total_time:.4f} seconds.")
+            # Determine if the bases were from a random request for display purposes
+            # bases_input_str is available from earlier in the function: bases_input_str = entry_a.get().strip()
+            is_display_as_random = False
+            if not bases_input_str: # Default random if input was empty
+                is_display_as_random = True
+            else:
+                try:
+                    int(bases_input_str) # Try to parse as int
+                    if ',' not in bases_input_str: # If it's a single int (count) and not a list
+                        is_display_as_random = True
+                except ValueError:
+                    pass # It was likely a list (e.g., "2,3,5") or invalid, not a random count request
+            
+            guard_bases = []
+            if should_run_mr_guard(bases_input_str, len(passed_bases), plus_one_count, minus_one_count):
+                MR_GUARD_BASES = 5
+                guard_bases = generate_random_guard_bases(n_mpz, MR_GUARD_BASES, selected_bases_int_list)
+                for guard_base in guard_bases:
+                    if not miller_rabin_test_single_base(n_mpz, mpz(guard_base)):
+                        total_time = time.time() - start_time_overall
+                        update_result_text(
+                            f"The number is composite.\n"
+                            f"Failed Miller-Rabin guard for base {guard_base} after passing Euler-Jacobi.\n"
+                            f"Tested in {total_time:.4f} seconds."
+                        )
+                        if progress_bar: progress_bar['value'] = PROGRESS_BAR_MAX
+                        return
+
+            bases_display_string_part = ""
+            MAX_BASES_TO_LIST_DETAIL = 7  # Max number of bases to show in a list explicitly
+            MAX_VALUE_OF_BASE_TO_LIST_DETAIL = 100000 # If any base is larger than this, summarize
+
+            # Condition to summarize instead of listing all bases:
+            # 1. The list of passed bases is longer than MAX_BASES_TO_LIST_DETAIL, OR
+            # 2. Any of the passed bases is larger than MAX_VALUE_OF_BASE_TO_LIST_DETAIL.
+            if len(passed_bases) > MAX_BASES_TO_LIST_DETAIL or \
+               any(b > MAX_VALUE_OF_BASE_TO_LIST_DETAIL for b in passed_bases):
+                
+                if is_display_as_random:
+                    bases_display_string_part = f"all {len(passed_bases)} randomly generated base(s)"
+                else:
+                    # If bases were specified as a list but are too many/too large to display
+                    bases_display_string_part = f"all {len(passed_bases)} specified/selected base(s)"
+            else: # List them if they are few and small
+                bases_display_string_part = f"bases: {passed_bases}"
+
+            total_time = time.time() - start_time_overall
+            guard_text = (
+                f" and {len(guard_bases)} Miller-Rabin guard base(s)"
+                if guard_bases else
+                " and no Miller-Rabin guard (profile not suspicious)"
+            )
+            update_result_text(
+                f"The number is likely prime "
+                f"(passed Euler-Jacobi for {bases_display_string_part}{guard_text}).\n"
+                f"Tested in {total_time:.4f} seconds."
+            )
     
     if progress_bar: progress_bar['value'] = PROGRESS_BAR_MAX
 
@@ -536,12 +654,7 @@ def parse_input_to_mpz(input_str):
     and converts it to a gmpy2.mpz object.
     Returns an mpz object or None on error (and shows a messagebox).
     """
-    try:
-        # Allow evaluation of expressions like 2**127-1
-        # For very large numbers from expressions, sympy might be slow or hit limits.
-        # We might need to be careful here.
-        # Using a timeout or direct gmpy2 parsing if possible for simple integers.
-        
+    try:   
         # Try direct int conversion first for simple large numbers
         try:
             if input_str.isdigit() or (input_str.startswith('-') and input_str[1:].isdigit()):
@@ -573,7 +686,7 @@ def parse_input_to_mpz(input_str):
         return n_mpz
         
     except Exception as e:
-        messagebox.showerror("Input Error", f"Could not parse '{input_str}'. Please insert a valid integer or mathematical expression.\\nDetails: {e}")
+        messagebox.showerror("Input Error", f"Could not parse '{input_str}'. Please insert a valid integer or mathematical expression.\nDetails: {e}")
         return None
 
 # -------------------  IMPROVED GUI DESIGN  -------------------
@@ -634,9 +747,9 @@ instructions_frame.pack(fill="x", padx=20, pady=(15,5)) # Slightly adjusted padd
 instruction_text = (
     "This program uses sympy.isprime for numbers less than 10^20.\n"
     "For larger numbers, it first applies a classical filter (trial division by small primes\n"
-    "and numbers of the form 6k±1). If the number passes this filter, an Euler-based test (a^((N-1)/2) % N == ±1) \n"
-    "is then used with multiple bases.\n\n"
-    "A 'likely prime' result from the Euler-based test indicates a high probability\n"
+    "and numbers of the form 6k±1). If the number passes this filter, an Euler-Jacobi test is used\n"
+    "with multiple bases. A Miller-Rabin guard phase is triggered only for suspicious profiles.\n\n"
+    "A 'likely prime' result from these probabilistic tests indicates a high probability\n"
     "that the number is prime.\n\n"
     "Pseudoprimes are non-genuine primes. For enhanced results, several bases (e.g., 2, 3, 5, 7, 11, 13)\n"
     "will be tested concurrently using multiprocessing.\n\n"
@@ -676,7 +789,7 @@ text_number.config(yscrollcommand=scrollbar_y.set)
 
 # Input Base 'a'
 tk.Label(
-    input_frame, text="Bases 'a' (e.g., 5 for 5 random bases, or 2,3,7 for specific bases):", bg=BG_COLOR, fg=TEXT_COLOR,
+    input_frame, text="Bases 'a' for Euler-Jacobi (e.g., 5 random bases, or 2,3,7 explicitly):", bg=BG_COLOR, fg=TEXT_COLOR,
     font=LABEL_FONT
 ).grid(row=2, column=0, sticky="w", padx=5, pady=(5,0))
 
